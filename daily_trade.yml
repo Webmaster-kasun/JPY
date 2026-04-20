@@ -2,9 +2,11 @@ name: USD/JPY Daily Signal Check
 
 on:
   schedule:
-    # 16:10 UTC daily Mon-Fri (00:10 SGT next day, after daily candle closes)
-    - cron: "10 16 * * 1-5"
-  workflow_dispatch:   # allow manual trigger from GitHub Actions UI
+    # 22:00 UTC = 06:00 SGT (Tokyo open)
+    - cron: "0 22 * * 0-4"
+    # 14:30 UTC = 22:30 SGT (NY/London overlap)
+    - cron: "30 14 * * 1-5"
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -25,12 +27,12 @@ jobs:
 
       - name: Run signal check
         env:
-          OANDA_API_KEY:    ${{ secrets.OANDA_API_KEY }}
-          OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
-          OANDA_ENV:        ${{ secrets.OANDA_ENV }}
+          OANDA_API_KEY:      ${{ secrets.OANDA_API_KEY }}
+          OANDA_ACCOUNT_ID:   ${{ secrets.OANDA_ACCOUNT_ID }}
+          OANDA_ENV:          ${{ secrets.OANDA_ENV }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          BOT_MODE:         ${{ secrets.BOT_MODE }}
+          BOT_MODE:           ${{ secrets.BOT_MODE }}
         run: python main.py --once
 
       - name: Upload logs
