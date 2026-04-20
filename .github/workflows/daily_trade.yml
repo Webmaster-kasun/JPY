@@ -1,8 +1,11 @@
 name: USD/JPY Daily Signal Check
 
 on:
-  # Disabled cron — Railway scheduler handles the daily run at 16:05 UTC.
-  # Keep workflow_dispatch for manual one-off checks from GitHub UI.
+  schedule:
+    # 22:00 UTC = 06:00 SGT (Tokyo open)
+    - cron: "0 22 * * 0-4"
+    # 14:30 UTC = 22:30 SGT (NY/London overlap)
+    - cron: "30 14 * * 1-5"
   workflow_dispatch:
 
 jobs:
@@ -24,12 +27,12 @@ jobs:
 
       - name: Run signal check
         env:
-          OANDA_API_KEY:    ${{ secrets.OANDA_API_KEY }}
-          OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
-          OANDA_ENV:        ${{ secrets.OANDA_ENV }}
-          TELEGRAM_TOKEN:      ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
-          BOT_MODE:         ${{ secrets.BOT_MODE }}
+          OANDA_API_KEY:      ${{ secrets.OANDA_API_KEY }}
+          OANDA_ACCOUNT_ID:   ${{ secrets.OANDA_ACCOUNT_ID }}
+          OANDA_ENV:          ${{ secrets.OANDA_ENV }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          BOT_MODE:           ${{ secrets.BOT_MODE }}
         run: python main.py --once
 
       - name: Upload logs
