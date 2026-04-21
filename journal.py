@@ -1,8 +1,8 @@
 """
 journal.py — Trade journal (CSV-based, persistent)
 ===================================================
-Logs every signal check and completed trade.
-Provides P&L summaries and weekly stats.
+Fixed: safe float cast in log_trade to prevent ValueError
+       when sgd_pnl is empty string.
 """
 
 import os
@@ -46,6 +46,12 @@ def log_signal(sig: dict, candle_date):
 def log_trade(trade: dict, running_sgd: float, notes: str = "") -> str:
     _init(cfg.TRADE_LOG, _TRADE_HEADERS)
     trade_id = _next_id()
+    # FIX BUG 7: safe float cast — sgd_pnl could be empty string
+    try:
+        pnl_val = float(trade.get("sgd_pnl", 0) or 0)
+    except (ValueError, TypeError):
+        pnl_val = 0.0
+
     with open(cfg.TRADE_LOG, "a", newline="") as f:
         csv.writer(f).writerow([
             trade_id,
@@ -58,12 +64,12 @@ def log_trade(trade: dict, running_sgd: float, notes: str = "") -> str:
             trade.get("sl",""),
             trade.get("result",""),
             trade.get("pips",""),
-            trade.get("sgd_pnl",""),
+            pnl_val,
             round(running_sgd, 2),
             cfg.BOT_MODE,
             notes,
         ])
-    log.info(f"Trade logged: {trade_id} | {trade.get('result')} | SGD {trade.get('sgd_pnl',0):+.2f}")
+    log.info(f"Trade logged: {trade_id} | {trade.get('result')} | SGD {pnl_val:+.2f}")
     return trade_id
 
 
@@ -87,23 +93,34 @@ def load_trades() -> list:
 
 def running_sgd() -> float:
     trades = load_trades()
-    return float(trades[-1]["running_sgd"]) if trades else 0.0
+    if not trades:
+        return 0.0
+    try:
+        return float(trades[-1]["running_sgd"])
+    except (ValueError, KeyError):
+        return 0.0
 
 
 def weekly_stats() -> dict:
     from datetime import date, timedelta
-    trades = load_trades()
+    trades     = load_trades()
     week_start = date.today() - timedelta(days=date.today().weekday())
-    this_week  = [t for t in trades
-                  if t.get("open_date","") >= str(week_start)]
+    this_week  = [t for t in trades if t.get("open_date","") >= str(week_start)]
     wins   = sum(1 for t in this_week if t.get("result") == "WIN")
     losses = sum(1 for t in this_week if t.get("result") == "LOSS")
-    net    = sum(float(t.get("sgd_pnl",0)) for t in this_week)
-    total  = len(this_week)
-    return {"total": total, "wins": wins, "losses": losses,
-            "net_sgd": round(net,2),
-            "win_rate": round(wins/total*100,1) if total else 0,
-            "loss_streak": _loss_streak(trades)}
+    try:
+        net = sum(float(t.get("sgd_pnl") or 0) for t in this_week)
+    except (ValueError, TypeError):
+        net = 0.0
+    total = len(this_week)
+    return {
+        "total"       : total,
+        "wins"        : wins,
+        "losses"      : losses,
+        "net_sgd"     : round(net, 2),
+        "win_rate"    : round(wins/total*100, 1) if total else 0,
+        "loss_streak" : _loss_streak(trades),
+    }
 
 
 def _loss_streak(trades: list) -> int:
@@ -121,20 +138,23 @@ def print_summary():
     if not trades:
         print("[journal] No trades yet.")
         return
-    wins   = sum(1 for t in trades if t.get("result") == "WIN")
-    total  = len(trades)
-    net    = float(trades[-1]["running_sgd"]) if trades else 0
-    wr     = round(wins/total*100,1) if total else 0
-    print(f"\n{'═'*50}")
+    wins  = sum(1 for t in trades if t.get("result") == "WIN")
+    total = len(trades)
+    net   = running_sgd()
+    wr    = round(wins/total*100, 1) if total else 0
+    print(f"\n{'═'*52}")
     print(f"  USD/JPY Trade Journal  ({total} trades)")
     print(f"  Win rate: {wr}%  |  Net: SGD {net:+.2f}")
-    print(f"{'─'*50}")
+    print(f"{'─'*52}")
     print(f"  {'ID':<6} {'Date':<12} {'Dir':<6} {'Result':<6} {'SGD':>8} {'Running':>10}")
-    print(f"{'─'*50}")
+    print(f"{'─'*52}")
     for t in trades:
-        sgd = float(t.get("sgd_pnl",0))
-        run = float(t.get("running_sgd",0))
+        try:
+            sgd = float(t.get("sgd_pnl") or 0)
+            run = float(t.get("running_sgd") or 0)
+        except (ValueError, TypeError):
+            sgd = run = 0.0
         print(f"  {t['trade_id']:<6} {t['open_date']:<12} "
               f"{t['direction']:<6} {t['result']:<6} {sgd:>+8.2f} {run:>+10.2f}")
-    print(f"  {'':<6} {'':<12} {'':<6} {'TOTAL':<6} {net:>+8.2f}")
-    print(f"{'═'*50}\n")
+    print(f"  {'':52}  Total: SGD {net:+.2f}")
+    print(f"{'═'*52}\n")

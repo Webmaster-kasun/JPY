@@ -1,8 +1,10 @@
 """
 oanda_trader.py — OANDA v20 REST API integration
 =================================================
-BOT_MODE=paper  -> PaperTrader (yfinance, no real orders)
-BOT_MODE=live   -> OandaTrader (real OANDA API)
+Fixed:
+  - get_account_summary returns balance_sgd (SGD account)
+  - PaperTrader balance reflects journal running SGD
+  - yfinance MultiIndex fully handled
 """
 
 import requests
@@ -43,13 +45,18 @@ class OandaTrader:
             return {}
 
     def get_account_summary(self):
+        """Returns balance in account currency (SGD for SGD accounts)."""
         data = self._get(f"/v3/accounts/{self.account_id}/summary")
         acc  = data.get("account", {})
+        raw_balance = float(acc.get("balance", 0))
+        currency    = acc.get("currency", "SGD")
         return {
-            "balance"    : float(acc.get("balance", 0)),
-            "nav"        : float(acc.get("NAV", 0)),
-            "open_pl"    : float(acc.get("unrealizedPL", 0)),
-            "open_trades": int(acc.get("openTradeCount", 0)),
+            "balance"     : raw_balance,
+            "balance_sgd" : raw_balance,   # OANDA returns in account currency = SGD
+            "currency"    : currency,
+            "nav"         : float(acc.get("NAV", 0)),
+            "open_pl"     : float(acc.get("unrealizedPL", 0)),
+            "open_trades" : int(acc.get("openTradeCount", 0)),
         }
 
     def get_candles(self, instrument=None, granularity=None, count=None):
@@ -140,18 +147,29 @@ class OandaTrader:
 
 
 class PaperTrader:
-    """No-op trader for paper mode — uses yfinance for candles."""
+    """Paper mode — yfinance candles, no real orders. Balance from journal."""
 
     def __init__(self):
         log.info("PaperTrader active — no real orders")
         self._trades = []
 
     def get_account_summary(self):
-        return {"balance": 10000.0, "nav": 10000.0,
-                "open_pl": 0.0, "open_trades": len(self._trades)}
+        """Balance = journal running SGD (actual paper P&L)."""
+        try:
+            import journal
+            bal = journal.running_sgd()
+        except Exception:
+            bal = 0.0
+        return {
+            "balance"    : bal,
+            "balance_sgd": bal,
+            "currency"   : "SGD",
+            "nav"        : bal,
+            "open_pl"    : 0.0,
+            "open_trades": len(self._trades),
+        }
 
     def get_candles(self, instrument=None, granularity=None, count=None):
-        """FIX BUG 4: robust yfinance MultiIndex handling."""
         import yfinance as yf
         try:
             raw = yf.download(
@@ -162,23 +180,18 @@ class PaperTrader:
                 log.error("yfinance returned empty dataframe")
                 return pd.DataFrame()
 
-            # FIX: flatten MultiIndex properly — handles both (col,) and (col, ticker)
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
 
-            # Keep only OHLCV columns
             needed = ["Open", "High", "Low", "Close", "Volume"]
-            raw = raw[[c for c in needed if c in raw.columns]]
-
+            raw    = raw[[c for c in needed if c in raw.columns]]
             raw.index.name = "Date"
             df = raw.reset_index()
             df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
             df = df.dropna(subset=["Close"])
             df = df.sort_values("Date").reset_index(drop=True)
-
-            log.info(f"[PAPER] yfinance fetched {len(df)} candles")
+            log.info(f"[PAPER] yfinance: {len(df)} candles")
             return df
-
         except Exception as e:
             log.error(f"[PAPER] yfinance error: {e}")
             return pd.DataFrame()

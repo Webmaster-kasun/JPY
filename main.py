@@ -1,7 +1,7 @@
 """
 main.py — Entry point for Railway deployment
 =============================================
-Runs the bot on TWO daily schedules:
+Two daily schedules:
   - 22:00 UTC = 06:00 SGT (Tokyo open)
   - 14:30 UTC = 22:30 SGT (NY/London overlap)
 
@@ -25,20 +25,19 @@ import logger as log
 import telegram_alert as tg
 from bot import run
 from risk import print_risk_summary
-from journal import print_summary
+from journal import print_summary, weekly_stats
 from backtest_usdjpy import main as run_backtest
-
+from oanda_trader import get_trader
 
 BANNER = """
 ╔══════════════════════════════════════════════════╗
-║     USD/JPY PULLBACK BOT  v1.1                  ║
+║     USD/JPY PULLBACK BOT  v1.2                  ║
 ║     Strategy : EMA9/21 + RSI Pullback           ║
 ║     Backtest : 83% WR  Jan-Apr 2026             ║
 ║     TP 15pip / SL 10pip / 50k units             ║
 ╚══════════════════════════════════════════════════╝
 """
 
-# FIX BUG 2: Two run windows instead of one
 RUN_TIMES_UTC = [
     "22:00",   # 06:00 SGT — Tokyo open
     "14:30",   # 22:30 SGT — NY/London overlap
@@ -46,7 +45,6 @@ RUN_TIMES_UTC = [
 
 
 def scheduled_run():
-    """Called by scheduler at each run window."""
     now = datetime.now(timezone.utc)
     if now.weekday() >= 5:
         log.info("Weekend — skipping run")
@@ -59,14 +57,30 @@ def scheduled_run():
 
 
 def start_scheduler():
-    """Set up two daily schedules and run forever."""
+    """Boot: send rich startup Telegram, then schedule two daily runs."""
     for t in RUN_TIMES_UTC:
         schedule.every().day.at(t).do(scheduled_run)
-        log.info(f"Scheduled run at {t} UTC")
+        log.info(f"Scheduled at {t} UTC")
 
-    log.info("Sending startup Telegram ping...")
-    tg.test_connection()
+    # Rich startup Telegram with balance + weekly stats
+    try:
+        trader      = get_trader()
+        acct        = trader.get_account_summary()
+        balance_sgd = acct.get("balance_sgd") or acct.get("balance")
+        open_trades = acct.get("open_trades", 0)
+        wk          = weekly_stats()
+        tg.alert_startup(
+            balance_sgd    = balance_sgd,
+            open_trades    = open_trades,
+            weekly_wins    = wk["wins"],
+            weekly_losses  = wk["losses"],
+            weekly_pnl     = wk["net_sgd"],
+        )
+    except Exception as e:
+        log.warning(f"Startup balance fetch failed: {e}")
+        tg.test_connection()
 
+    log.info("Scheduler running — waiting for next window...")
     while True:
         schedule.run_pending()
         time.sleep(30)
@@ -88,25 +102,20 @@ def main():
     if args.backtest:
         run_backtest()
         return
-
     if args.test_tg:
         ok = tg.test_connection()
         print("Telegram OK" if ok else "Telegram FAILED — check env vars")
         return
-
     if args.journal:
         print_summary()
         return
-
     if args.risk:
         print_risk_summary()
         return
-
     if args.once:
         run()
         return
 
-    # Default: scheduled loop (Railway production mode)
     start_scheduler()
 
 

@@ -1,7 +1,12 @@
 """
 bot.py — Core bot orchestration
 ================================
-FIX BUG 5: Added cycle complete log on all exit paths.
+Fixed:
+  - Account balance fetched and passed to all Telegram alerts
+  - Session-start Telegram message with balance + weekly stats
+  - alert_no_signal now passes full sig dict (not just reason string)
+  - alert_open_trade_exists used when signal fires but trade open
+  - All P&L in SGD only
 """
 
 from datetime import datetime, timezone
@@ -10,7 +15,7 @@ import logger as log
 import journal
 import telegram_alert as tg
 from signals import get_signal, print_signal
-from calendar_filter import is_safe_to_trade
+from calendar_filter import is_safe_to_trade, get_session_label
 from oanda_trader import get_trader
 from risk import calc_pnl_sgd, check_risk_limits
 
@@ -22,7 +27,27 @@ def run():
 
     trader = get_trader()
 
-    # 1. Fetch candles
+    # ── Account status ────────────────────────────────────────────────────────
+    acct        = trader.get_account_summary()
+    balance_sgd = acct.get("balance_sgd") or acct.get("balance")
+    open_trades = acct.get("open_trades", 0)
+    log.info(f"Account: balance={balance_sgd}  open_trades={open_trades}")
+
+    # ── Weekly stats for session message ──────────────────────────────────────
+    wk          = journal.weekly_stats()
+    session_lbl = get_session_label(now)
+
+    # Send session-start Telegram with balance + weekly summary
+    tg.alert_session_start(
+        session_label  = session_lbl,
+        balance_sgd    = balance_sgd,
+        open_trades    = open_trades,
+        weekly_pnl     = wk["net_sgd"],
+        weekly_wins    = wk["wins"],
+        weekly_losses  = wk["losses"],
+    )
+
+    # ── Fetch candles ─────────────────────────────────────────────────────────
     df = trader.get_candles()
     if df is None or df.empty or len(df) < 25:
         log.error("No candle data — aborting cycle")
@@ -32,16 +57,16 @@ def run():
 
     candle_date = df["Date"].iloc[-1]
 
-    # 2. Generate signal
+    # ── Generate signal ───────────────────────────────────────────────────────
     sig = get_signal(df)
     print_signal(sig, candle_date)
     journal.log_signal(sig, candle_date)
 
-    # 3. Risk checks
+    # ── Safety checks ─────────────────────────────────────────────────────────
     safe_to_trade, safety_reason = is_safe_to_trade(now)
     if not safe_to_trade:
         log.info(f"Trading paused: {safety_reason}")
-        tg.alert_no_signal(safety_reason, candle_date)
+        tg.alert_risk_pause(safety_reason)
         log.info("═══ Bot cycle complete (safety pause) ═══")
         return
 
@@ -52,46 +77,44 @@ def run():
         log.info("═══ Bot cycle complete (risk limit) ═══")
         return
 
-    # 4. No signal
+    # ── No signal ─────────────────────────────────────────────────────────────
     if sig["signal"] == "NONE":
         log.info(f"No signal: {sig['reason']}")
-        tg.alert_no_signal(sig["reason"], candle_date)
+        tg.alert_no_signal(sig, candle_date)   # pass full sig dict
         log.info("═══ Bot cycle complete (no signal) ═══")
         return
 
-    # 5. Already in a trade
+    # ── Already in trade ──────────────────────────────────────────────────────
     if trader.has_open_trade():
         log.info("Open trade exists — skipping new signal")
+        tg.alert_open_trade_exists()
         log.info("═══ Bot cycle complete (trade open) ═══")
         return
 
-    # 6. Place order
+    # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"Signal confirmed: {sig['signal']} @ {sig['entry']}")
-    tg.alert_signal(sig, candle_date)
+    tg.alert_signal(sig, candle_date, balance_sgd=balance_sgd)
 
     if cfg.BOT_MODE == "paper":
-        log.info(f"[PAPER] Simulating: {sig['signal']} @ {sig['entry']} TP={sig['tp']} SL={sig['sl']}")
+        log.info(f"[PAPER] {sig['signal']} @ {sig['entry']}  TP={sig['tp']}  SL={sig['sl']}")
         log.info("═══ Bot cycle complete (paper trade logged) ═══")
         return
 
     fill = trader.place_order(
-        direction=sig["signal"],
-        entry    =sig["entry"],
-        tp       =sig["tp"],
-        sl       =sig["sl"],
+        direction = sig["signal"],
+        entry     = sig["entry"],
+        tp        = sig["tp"],
+        sl        = sig["sl"],
     )
 
     if fill.get("status") == "FILLED":
+        # Refresh balance after fill
+        acct2       = trader.get_account_summary()
+        bal_after   = acct2.get("balance_sgd") or acct2.get("balance")
         log.info(f"Order filled: trade_id={fill.get('trade_id')} @ {fill.get('fill_price')}")
-        tg.alert_order_filled(fill)
-        _record_open_trade(fill, sig, candle_date)
+        tg.alert_order_filled(fill, balance_sgd=bal_after)
     else:
         log.error(f"Order failed: {fill}")
         tg.alert_error(f"Order failed: {fill.get('status')}")
 
     log.info("═══ Bot cycle complete ═══")
-
-
-def _record_open_trade(fill: dict, sig: dict, candle_date):
-    """OANDA manages TP/SL server-side. Journal updated on close via poll."""
-    pass
