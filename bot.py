@@ -1,13 +1,7 @@
 """
 bot.py — Core bot orchestration
 ================================
-Called by main.py on each scheduled run.
-Sequence:
-  1. Fetch candles (OANDA or yfinance fallback)
-  2. Generate signal
-  3. Risk checks (loss streak, weekly limit, news blackout)
-  4. Place order if signal + no open trade
-  5. Log + Telegram alert
+FIX BUG 5: Added cycle complete log on all exit paths.
 """
 
 from datetime import datetime, timezone
@@ -30,9 +24,10 @@ def run():
 
     # 1. Fetch candles
     df = trader.get_candles()
-    if df.empty or len(df) < 25:
+    if df is None or df.empty or len(df) < 25:
         log.error("No candle data — aborting cycle")
         tg.alert_error("Could not fetch candle data")
+        log.info("═══ Bot cycle complete (no data) ═══")
         return
 
     candle_date = df["Date"].iloc[-1]
@@ -47,23 +42,27 @@ def run():
     if not safe_to_trade:
         log.info(f"Trading paused: {safety_reason}")
         tg.alert_no_signal(safety_reason, candle_date)
+        log.info("═══ Bot cycle complete (safety pause) ═══")
         return
 
     risk_ok, risk_reason = check_risk_limits()
     if not risk_ok:
         log.warning(f"Risk limit hit: {risk_reason}")
         tg.alert_risk_pause(risk_reason)
+        log.info("═══ Bot cycle complete (risk limit) ═══")
         return
 
     # 4. No signal
     if sig["signal"] == "NONE":
         log.info(f"No signal: {sig['reason']}")
         tg.alert_no_signal(sig["reason"], candle_date)
+        log.info("═══ Bot cycle complete (no signal) ═══")
         return
 
     # 5. Already in a trade
     if trader.has_open_trade():
         log.info("Open trade exists — skipping new signal")
+        log.info("═══ Bot cycle complete (trade open) ═══")
         return
 
     # 6. Place order
@@ -71,8 +70,8 @@ def run():
     tg.alert_signal(sig, candle_date)
 
     if cfg.BOT_MODE == "paper":
-        log.info("[PAPER] Simulating order — not sending to broker")
-        _record_simulated(sig, candle_date)
+        log.info(f"[PAPER] Simulating: {sig['signal']} @ {sig['entry']} TP={sig['tp']} SL={sig['sl']}")
+        log.info("═══ Bot cycle complete (paper trade logged) ═══")
         return
 
     fill = trader.place_order(
@@ -83,7 +82,7 @@ def run():
     )
 
     if fill.get("status") == "FILLED":
-        log.info(f"Order filled: {fill}")
+        log.info(f"Order filled: trade_id={fill.get('trade_id')} @ {fill.get('fill_price')}")
         tg.alert_order_filled(fill)
         _record_open_trade(fill, sig, candle_date)
     else:
@@ -93,11 +92,6 @@ def run():
     log.info("═══ Bot cycle complete ═══")
 
 
-def _record_simulated(sig: dict, candle_date):
-    """Log a simulated paper trade entry."""
-    log.info(f"[PAPER] Entry logged: {sig['signal']} @ {sig['entry']}")
-
-
 def _record_open_trade(fill: dict, sig: dict, candle_date):
-    """Store open trade reference for journal (closed on next cycle)."""
-    pass   # OANDA manages TP/SL server-side; journal updated on close via webhook or poll
+    """OANDA manages TP/SL server-side. Journal updated on close via poll."""
+    pass

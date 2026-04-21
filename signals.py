@@ -115,7 +115,3 @@ def print_signal(sig, candle_date=None):
     print(f"{'─'*50}\n")
 
 
-# ── Alias for cross-module compatibility ───────────────────────────────────────
-def _calc_sgd_pnl(result: str) -> float:
-    """Alias — delegates to module-level function above."""
-    return _calc_sgd_pnl(result)

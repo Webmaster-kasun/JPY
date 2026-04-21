@@ -1,8 +1,9 @@
 """
 main.py — Entry point for Railway deployment
 =============================================
-Runs the bot on a daily schedule (16:05 UTC = midnight SGT + 5 min buffer).
-Also supports one-shot modes for testing.
+Runs the bot on TWO daily schedules:
+  - 22:00 UTC = 06:00 SGT (Tokyo open)
+  - 14:30 UTC = 22:30 SGT (NY/London overlap)
 
 Usage:
     python main.py              # scheduled loop (Railway/production)
@@ -30,18 +31,24 @@ from backtest_usdjpy import main as run_backtest
 
 BANNER = """
 ╔══════════════════════════════════════════════════╗
-║     USD/JPY PULLBACK BOT  v1.0                  ║
+║     USD/JPY PULLBACK BOT  v1.1                  ║
 ║     Strategy : EMA9/21 + RSI Pullback           ║
 ║     Backtest : 83% WR  Jan-Apr 2026             ║
 ║     TP 15pip / SL 10pip / 50k units             ║
 ╚══════════════════════════════════════════════════╝
 """
 
+# FIX BUG 2: Two run windows instead of one
+RUN_TIMES_UTC = [
+    "22:00",   # 06:00 SGT — Tokyo open
+    "14:30",   # 22:30 SGT — NY/London overlap
+]
+
 
 def scheduled_run():
-    """Called by scheduler every weekday at RUN_HOUR_UTC:RUN_MIN_UTC."""
+    """Called by scheduler at each run window."""
     now = datetime.now(timezone.utc)
-    if now.weekday() >= 5:   # skip weekends
+    if now.weekday() >= 5:
         log.info("Weekend — skipping run")
         return
     try:
@@ -52,10 +59,10 @@ def scheduled_run():
 
 
 def start_scheduler():
-    """Set up daily schedule and run forever."""
-    run_time = f"{cfg.RUN_HOUR_UTC:02d}:{cfg.RUN_MIN_UTC:02d}"
-    log.info(f"Scheduler started — daily at {run_time} UTC")
-    schedule.every().day.at(run_time).do(scheduled_run)
+    """Set up two daily schedules and run forever."""
+    for t in RUN_TIMES_UTC:
+        schedule.every().day.at(t).do(scheduled_run)
+        log.info(f"Scheduled run at {t} UTC")
 
     log.info("Sending startup Telegram ping...")
     tg.test_connection()
@@ -84,7 +91,7 @@ def main():
 
     if args.test_tg:
         ok = tg.test_connection()
-        print("Telegram OK" if ok else "Telegram FAILED — check .env")
+        print("Telegram OK" if ok else "Telegram FAILED — check env vars")
         return
 
     if args.journal:

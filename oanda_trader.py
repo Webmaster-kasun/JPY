@@ -1,9 +1,7 @@
 """
 oanda_trader.py — OANDA v20 REST API integration
 =================================================
-Handles fetching candles, placing orders with TP/SL,
-checking open trades, and closing positions.
-BOT_MODE=paper  -> PaperTrader (no real orders)
+BOT_MODE=paper  -> PaperTrader (yfinance, no real orders)
 BOT_MODE=live   -> OandaTrader (real OANDA API)
 """
 
@@ -142,7 +140,7 @@ class OandaTrader:
 
 
 class PaperTrader:
-    """No-op trader for paper mode — simulates without real orders."""
+    """No-op trader for paper mode — uses yfinance for candles."""
 
     def __init__(self):
         log.info("PaperTrader active — no real orders")
@@ -153,28 +151,56 @@ class PaperTrader:
                 "open_pl": 0.0, "open_trades": len(self._trades)}
 
     def get_candles(self, instrument=None, granularity=None, count=None):
+        """FIX BUG 4: robust yfinance MultiIndex handling."""
         import yfinance as yf
-        raw = yf.download(cfg.SYMBOL_YF, period="6mo", interval="1d",
-                          progress=False, auto_adjust=True)
-        if hasattr(raw.columns, "get_level_values"):
-            raw.columns = raw.columns.get_level_values(0)
-        df = raw[["Open","High","Low","Close","Volume"]].copy()
-        df.index.name = "Date"
-        df = df.reset_index()
-        df["Date"] = pd.to_datetime(df["Date"])
-        return df.sort_values("Date").reset_index(drop=True)
+        try:
+            raw = yf.download(
+                cfg.SYMBOL_YF, period="6mo", interval="1d",
+                progress=False, auto_adjust=True
+            )
+            if raw.empty:
+                log.error("yfinance returned empty dataframe")
+                return pd.DataFrame()
+
+            # FIX: flatten MultiIndex properly — handles both (col,) and (col, ticker)
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+
+            # Keep only OHLCV columns
+            needed = ["Open", "High", "Low", "Close", "Volume"]
+            raw = raw[[c for c in needed if c in raw.columns]]
+
+            raw.index.name = "Date"
+            df = raw.reset_index()
+            df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
+            df = df.dropna(subset=["Close"])
+            df = df.sort_values("Date").reset_index(drop=True)
+
+            log.info(f"[PAPER] yfinance fetched {len(df)} candles")
+            return df
+
+        except Exception as e:
+            log.error(f"[PAPER] yfinance error: {e}")
+            return pd.DataFrame()
 
     def get_price(self, instrument=None):
         df = self.get_candles()
-        c  = float(df["Close"].iloc[-1])
+        if df.empty:
+            return {}
+        c = float(df["Close"].iloc[-1])
         return {"bid": c - 0.001, "ask": c + 0.001, "mid": c}
 
     def place_order(self, direction, entry, tp, sl, units=None):
-        units  = units or cfg.UNITS
-        trade  = {"status": "FILLED",
-                  "trade_id"  : f"PAPER_{len(self._trades)+1:03d}",
-                  "fill_price": entry, "direction": direction,
-                  "units": units, "tp": tp, "sl": sl}
+        units = units or cfg.UNITS
+        trade = {
+            "status"    : "FILLED",
+            "trade_id"  : f"PAPER_{len(self._trades)+1:03d}",
+            "fill_price": entry,
+            "direction" : direction,
+            "units"     : units,
+            "tp"        : tp,
+            "sl"        : sl,
+        }
         self._trades.append(trade)
         log.info(f"[PAPER] {direction} {units:,} @ {entry} | TP={tp} SL={sl}")
         return trade
