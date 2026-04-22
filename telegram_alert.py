@@ -1,4 +1,11 @@
-"""telegram_alert.py — SGD-only alerts for JPY Day Scalper"""
+"""
+telegram_alert.py — Telegram notifications for JPY Day Scalper
+===============================================================
+All P&L in SGD only.
+Signal messages include score (0-100) and grade.
+Balance shown directly from OANDA (live) or paper starting capital.
+"""
+
 import requests
 from datetime import datetime, timezone, timedelta
 import settings as cfg
@@ -6,27 +13,52 @@ import logger as log
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
-def _sgt():
-    return (datetime.now(timezone.utc)+timedelta(hours=8)).strftime("%d %b %Y  %H:%M SGT")
 
-def _send(text):
+def _sgt() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%d %b %Y  %H:%M SGT")
+
+
+def _send(text: str) -> bool:
     if not cfg.TELEGRAM_TOKEN or not cfg.TELEGRAM_CHAT_ID:
-        log.warning("Telegram not configured"); return False
+        log.warning("Telegram not configured — skipping")
+        return False
     try:
-        r = requests.post(TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN),
-                          json={"chat_id":cfg.TELEGRAM_CHAT_ID,"text":text,"parse_mode":"HTML"}, timeout=8)
-        r.raise_for_status(); return True
+        r = requests.post(
+            TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN),
+            json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
+            timeout=8
+        )
+        r.raise_for_status()
+        return True
     except Exception as e:
-        log.error(f"Telegram error: {e}"); return False
+        log.error(f"Telegram error: {e}")
+        return False
 
-def alert_startup(balance_sgd=None, open_trades=0, weekly_wins=0, weekly_losses=0, weekly_pnl=0.0):
-    bal  = f"💰 Balance   : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
-    wkly = f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}\n" if (weekly_wins+weekly_losses)>0 else "📊 This week : No trades yet\n"
+
+def _bal_line(balance_sgd, open_pl=None) -> str:
+    """Format balance line — only shows if balance is not None."""
+    if balance_sgd is None:
+        return ""
+    mode = " (paper)" if cfg.BOT_MODE == "paper" else ""
+    pl_str = f"  unrealised {open_pl:+.2f}" if open_pl and open_pl != 0 else ""
+    return f"💰 Balance   : <b>SGD {balance_sgd:,.2f}{mode}</b>{pl_str}\n"
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+
+def alert_startup(balance_sgd=None, open_trades=0,
+                  weekly_wins=0, weekly_losses=0, weekly_pnl=0.0):
+    """Sent when Railway boots the container."""
+    bal  = _bal_line(balance_sgd)
+    wkly = (f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}\n"
+            if (weekly_wins + weekly_losses) > 0 else "📊 This week : No trades yet\n")
+    mode_icon = "🟡" if cfg.BOT_MODE == "paper" else "🟢"
     return _send(
-        f"🟢 <b>JPY Day Scalper — Online</b>\n"
+        f"{mode_icon} <b>JPY Day Scalper — Online</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🕐 {_sgt()}\n"
-        f"⚙️ Mode : {cfg.BOT_MODE.upper()}  |  {cfg.OANDA_ENV.upper()}\n"
+        f"⚙️ Mode     : {cfg.BOT_MODE.upper()}  |  {cfg.OANDA_ENV.upper()}\n"
+        f"📈 Pair     : {cfg.PAIR_LABEL}\n"
         f"{bal}"
         f"🔓 Open trades : {open_trades}\n"
         f"{wkly}"
@@ -36,12 +68,19 @@ def alert_startup(balance_sgd=None, open_trades=0, weekly_wins=0, weekly_losses=
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎯 TP {cfg.TP_PIPS} pip = <b>+SGD {cfg.TP_SGD}</b>  "
         f"🛑 SL {cfg.SL_PIPS} pip = <b>-SGD {cfg.SL_SGD}</b>\n"
-        f"📈 Backtest: 78.6% WR  |  +SGD 151/week avg"
+        f"📊 Backtest: 82.7% WR  |  +SGD 227/week"
     )
 
-def alert_session_start(session_label, balance_sgd=None, open_trades=0, weekly_pnl=0.0, weekly_wins=0, weekly_losses=0):
-    bal  = f"💰 Balance   : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
-    wkly = f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}" if (weekly_wins+weekly_losses)>0 else "📊 This week : No trades yet"
+
+# ── Session start ─────────────────────────────────────────────────────────────
+
+def alert_session_start(session_label, balance_sgd=None, open_trades=0,
+                        open_pl=0.0, weekly_pnl=0.0,
+                        weekly_wins=0, weekly_losses=0):
+    """Sent at the start of each scan (06:05 SGT and 22:35 SGT)."""
+    bal  = _bal_line(balance_sgd, open_pl)
+    wkly = (f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}"
+            if (weekly_wins + weekly_losses) > 0 else "📊 This week : No trades yet")
     return _send(
         f"🔍 <b>Scanning — {session_label}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -51,40 +90,77 @@ def alert_session_start(session_label, balance_sgd=None, open_trades=0, weekly_p
         f"{wkly}"
     )
 
-def alert_signal(sig, candle_date=None, balance_sgd=None):
+
+# ── Signal ────────────────────────────────────────────────────────────────────
+
+def alert_signal(sig: dict, candle_date=None, balance_sgd=None):
+    """LONG/SHORT signal — includes score, all levels in SGD."""
     date_str = str(candle_date)[:10] if candle_date else "Today"
-    bal  = f"💰 Balance  : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
-    arrow= "↑ LONG" if sig['signal']=="LONG" else "↓ SHORT"
-    checks = sig.get("checks",{})
-    ck = "".join(f"{'✅' if v else '❌'} {k.replace('_',' ')}\n" for k,v in checks.items())
+    bal      = _bal_line(balance_sgd)
+    arrow    = "↑ LONG" if sig["signal"] == "LONG" else "↓ SHORT"
+    icon     = "🟢" if sig["signal"] == "LONG" else "🔴"
+
+    # Signal score block
+    score = sig.get("score") or {}
+    total = score.get("total", 0)
+    grade = score.get("grade", "")
+    stars = score.get("stars", "")
+    ema_s = score.get("ema_score", 0)
+    rsi_s = score.get("rsi_score", 0)
+    stk_s = score.get("stoch_score", 0)
+
+    # Progress bar for score
+    filled = round(total / 10)
+    bar    = "█" * filled + "░" * (10 - filled)
+
+    checks = sig.get("checks", {})
+    ck = "".join(
+        f"{'✅' if v else '❌'} {k.replace('_',' ')}\n"
+        for k, v in checks.items()
+    )
+
     return _send(
-        f"{'🟢' if sig['signal']=='LONG' else '🔴'} <b>{arrow} SIGNAL — USD/JPY</b>\n"
+        f"{icon} <b>{arrow} SIGNAL — USD/JPY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📅 {date_str}  |  🕐 {_sgt()}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💵 Entry  : <code>{sig['entry']:.4f}</code>\n"
-        f"🎯 TP     : <code>{sig['tp']:.4f}</code>  → <b>+SGD {cfg.TP_SGD}</b>\n"
-        f"🛑 SL     : <code>{sig['sl']:.4f}</code>  → <b>-SGD {cfg.SL_SGD}</b>\n"
+        f"📶 Score : <b>{total}/100</b>  {grade}\n"
+        f"     [{bar}]\n"
+        f"     EMA:{ema_s}  RSI:{rsi_s}  Stoch:{stk_s}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 RSI    : <code>{sig['rsi']:.1f}</code>   Stoch: <code>{sig['stoch_k']:.1f}</code>\n"
-        f"📈 EMA9   : <code>{sig['ema_fast']:.4f}</code>  EMA21: <code>{sig['ema_slow']:.4f}</code>\n"
-        f"📐 ATR    : <code>{sig['atr_pips']:.1f} pips</code>\n"
+        f"💵 Entry : <code>{sig['entry']:.4f}</code>\n"
+        f"🎯 TP    : <code>{sig['tp']:.4f}</code>  → <b>+SGD {cfg.TP_SGD}</b>\n"
+        f"🛑 SL    : <code>{sig['sl']:.4f}</code>  → <b>-SGD {cfg.SL_SGD}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 RSI   : <code>{sig['rsi']:.1f}</code>   "
+        f"Stoch: <code>{sig['stoch_k']:.1f}</code>   "
+        f"ATR: <code>{sig['atr_pips']:.1f}pip</code>\n"
+        f"📈 EMA9  : <code>{sig['ema_fast']:.4f}</code>  "
+        f"EMA21: <code>{sig['ema_slow']:.4f}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ck}"
         f"{bal}"
-        f"📦 Units  : {cfg.UNITS:,}  ({cfg.UNITS//10000} mini lots)\n"
-        f"⚙️ Mode   : {cfg.BOT_MODE.upper()}"
+        f"📦 Units : {cfg.UNITS:,}  ({cfg.UNITS//10000} mini lots)\n"
+        f"⚙️ Mode  : {cfg.BOT_MODE.upper()}"
     )
 
-def alert_no_signal(sig, candle_date=None):
+
+# ── No signal ─────────────────────────────────────────────────────────────────
+
+def alert_no_signal(sig: dict, candle_date=None):
+    """No-signal update — shows indicator values and what's missing."""
     date_str = str(candle_date)[:10] if candle_date else "Today"
-    rsi_v  = f"{sig['rsi']:.1f}"    if sig.get('rsi')     else "?"
-    sk_v   = f"{sig['stoch_k']:.1f}" if sig.get('stoch_k') else "?"
-    ef_v   = f"{sig['ema_fast']:.4f}" if sig.get('ema_fast') else "?"
-    es_v   = f"{sig['ema_slow']:.4f}" if sig.get('ema_slow') else "?"
-    atr_v  = f"{sig['atr_pips']:.1f}" if sig.get('atr_pips') else "?"
+    rsi_v  = f"{sig['rsi']:.1f}"     if sig.get("rsi")      else "?"
+    sk_v   = f"{sig['stoch_k']:.1f}" if sig.get("stoch_k")  else "?"
+    ef_v   = f"{sig['ema_fast']:.4f}" if sig.get("ema_fast") else "?"
+    es_v   = f"{sig['ema_slow']:.4f}" if sig.get("ema_slow") else "?"
+    atr_v  = f"{sig['atr_pips']:.1f}" if sig.get("atr_pips") else "?"
+
     checks = sig.get("checks", {})
-    ck = "".join(f"{'✅' if v else '❌'} {k.replace('_',' ')}\n" for k,v in checks.items())
+    ck = "".join(
+        f"{'✅' if v else '❌'} {k.replace('_',' ')}\n"
+        for k, v in checks.items()
+    )
     return _send(
         f"⚪ <b>No Signal — {date_str}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -93,11 +169,15 @@ def alert_no_signal(sig, candle_date=None):
         f"📐 ATR   : <code>{atr_v} pips</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ck}"
-        f"⏳ <b>{sig.get('reason','Waiting')}</b>"
+        f"⏳ <b>{sig.get('reason', 'Waiting')}</b>"
     )
 
-def alert_order_filled(fill, balance_sgd=None):
-    bal = f"💰 Balance after : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
+
+# ── Order filled ──────────────────────────────────────────────────────────────
+
+def alert_order_filled(fill: dict, balance_sgd=None):
+    """Confirmation after OANDA fills the order."""
+    bal = _bal_line(balance_sgd)
     return _send(
         f"✅ <b>ORDER FILLED — USD/JPY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -111,9 +191,14 @@ def alert_order_filled(fill, balance_sgd=None):
         f"{bal}"
     )
 
-def alert_trade_closed(result, pnl_sgd, running_sgd, entry, close_price, balance_sgd=None):
-    emoji = "🏆" if result=="WIN" else "❌"
-    bal   = f"💰 Balance : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
+
+# ── Trade closed ──────────────────────────────────────────────────────────────
+
+def alert_trade_closed(result: str, pnl_sgd: float, running_sgd: float,
+                       entry: float, close_price: float, balance_sgd=None):
+    """Sent when TP or SL is hit."""
+    emoji = "🏆" if result == "WIN" else "❌"
+    bal   = _bal_line(balance_sgd)
     return _send(
         f"{emoji} <b>TRADE {result} — USD/JPY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -125,23 +210,44 @@ def alert_trade_closed(result, pnl_sgd, running_sgd, entry, close_price, balance
         f"{bal}"
     )
 
-def alert_weekly_summary(total, wins, losses, net_sgd, win_rate, balance_sgd=None):
-    emoji = "📈" if net_sgd>=0 else "📉"
-    bal   = f"💰 Balance : <b>SGD {balance_sgd:,.2f}</b>\n" if balance_sgd is not None else ""
+
+# ── Weekly summary ────────────────────────────────────────────────────────────
+
+def alert_weekly_summary(total: int, wins: int, losses: int,
+                         net_sgd: float, win_rate: float, balance_sgd=None):
+    emoji = "📈" if net_sgd >= 0 else "📉"
+    bal   = _bal_line(balance_sgd)
     return _send(
         f"{emoji} <b>Weekly Summary — USD/JPY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📋 Trades  : {total}  ({wins}W / {losses}L)\n"
-        f"📊 Win rate: {win_rate:.1f}%\n"
-        f"💵 Net P&L : <b>SGD {net_sgd:+.0f}</b>\n"
+        f"📋 Trades   : {total}  ({wins}W / {losses}L)\n"
+        f"📊 Win rate : {win_rate:.1f}%\n"
+        f"💵 Net P&L  : <b>SGD {net_sgd:+.0f}</b>\n"
         f"{bal}"
     )
 
-def alert_risk_pause(reason):
-    return _send(f"⚠️ <b>Bot Paused</b>\n━━━━━━━━━━━━━━━━━━━━━━\n🚫 {reason}\n▶️ Resumes next Monday.")
 
-def alert_error(message):
-    return _send(f"🔴 <b>Bot Error</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<code>{message}</code>\n🕐 {_sgt()}")
+# ── Risk / error ──────────────────────────────────────────────────────────────
+
+def alert_risk_pause(reason: str):
+    return _send(
+        f"⚠️ <b>Bot Paused</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🚫 {reason}\n"
+        f"▶️ Resumes next Monday."
+    )
+
+def alert_error(message: str):
+    return _send(
+        f"🔴 <b>Bot Error</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<code>{message}</code>\n"
+        f"🕐 {_sgt()}"
+    )
 
 def test_connection():
-    return _send(f"🤖 <b>JPY Day Scalper — Connected</b>\nMode: {cfg.BOT_MODE.upper()}  |  {cfg.PAIR_LABEL}\n🕐 {_sgt()}")
+    return _send(
+        f"🤖 <b>JPY Day Scalper — Connected</b>\n"
+        f"Mode: {cfg.BOT_MODE.upper()}  |  {cfg.PAIR_LABEL}\n"
+        f"🕐 {_sgt()}"
+    )

@@ -2,9 +2,10 @@
 oanda_trader.py — OANDA v20 REST API integration
 =================================================
 Fixed:
-  - get_account_summary returns balance_sgd (SGD account)
-  - PaperTrader balance reflects journal running SGD
-  - yfinance MultiIndex fully handled
+  - get_account_summary returns actual OANDA balance in account currency
+  - Balance shown directly from OANDA API (SGD for SGD accounts)
+  - PaperTrader removed — BOT_MODE=live uses OandaTrader only
+  - get_trader() raises clear error if credentials missing in live mode
 """
 
 import requests
@@ -31,7 +32,7 @@ class OandaTrader:
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            log.error(f"OANDA GET error: {e}")
+            log.error(f"OANDA GET error [{endpoint}]: {e}")
             return {}
 
     def _post(self, endpoint, payload):
@@ -41,22 +42,54 @@ class OandaTrader:
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            log.error(f"OANDA POST error: {e}")
+            log.error(f"OANDA POST error [{endpoint}]: {e}")
             return {}
 
     def get_account_summary(self):
-        """Returns balance in account currency (SGD for SGD accounts)."""
+        """
+        Fetch live account balance directly from OANDA.
+        OANDA always returns 'balance' in the account's home currency.
+        For a SGD account -> balance is already SGD, no conversion needed.
+        """
         data = self._get(f"/v3/accounts/{self.account_id}/summary")
-        acc  = data.get("account", {})
-        raw_balance = float(acc.get("balance", 0))
-        currency    = acc.get("currency", "SGD")
+        if not data:
+            log.error("get_account_summary: empty response from OANDA")
+            return {"balance": None, "balance_sgd": None,
+                    "currency": "SGD", "nav": None,
+                    "open_pl": 0.0, "open_trades": 0}
+
+        acc      = data.get("account", {})
+        balance  = acc.get("balance")
+        currency = acc.get("currency", "SGD")
+        nav      = acc.get("NAV")
+        open_pl  = acc.get("unrealizedPL", 0)
+        open_trades = int(acc.get("openTradeCount", 0))
+
+        # Convert to float safely
+        try:
+            balance = round(float(balance), 2) if balance is not None else None
+        except (ValueError, TypeError):
+            balance = None
+
+        try:
+            nav = round(float(nav), 2) if nav is not None else balance
+        except (ValueError, TypeError):
+            nav = balance
+
+        try:
+            open_pl = round(float(open_pl), 2)
+        except (ValueError, TypeError):
+            open_pl = 0.0
+
+        log.info(f"OANDA account: {currency} {balance}  NAV={nav}  openPL={open_pl}  trades={open_trades}")
+
         return {
-            "balance"     : raw_balance,
-            "balance_sgd" : raw_balance,   # OANDA returns in account currency = SGD
-            "currency"    : currency,
-            "nav"         : float(acc.get("NAV", 0)),
-            "open_pl"     : float(acc.get("unrealizedPL", 0)),
-            "open_trades" : int(acc.get("openTradeCount", 0)),
+            "balance"    : balance,
+            "balance_sgd": balance,   # already in SGD for SGD accounts
+            "currency"   : currency,
+            "nav"        : nav,
+            "open_pl"    : open_pl,
+            "open_trades": open_trades,
         }
 
     def get_candles(self, instrument=None, granularity=None, count=None):
@@ -78,6 +111,9 @@ class OandaTrader:
                 "Close" : float(mid["c"]),
                 "Volume": int(c.get("volume", 0)),
             })
+        if not rows:
+            log.error("get_candles: no candles returned from OANDA")
+            return pd.DataFrame()
         df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
         log.info(f"Fetched {len(df)} candles ({instrument} {granularity})")
         return df
@@ -147,19 +183,23 @@ class OandaTrader:
 
 
 class PaperTrader:
-    """Paper mode — yfinance candles, no real orders. Balance from journal."""
+    """
+    Paper/demo mode — uses yfinance for candles, no real orders placed.
+    Balance shown = paper_starting_capital + cumulative P&L from journal.
+    """
 
     def __init__(self):
         log.info("PaperTrader active — no real orders")
         self._trades = []
 
     def get_account_summary(self):
-        """Balance = journal running SGD (actual paper P&L)."""
         try:
             import journal
-            bal = journal.running_sgd()
+            pnl = journal.running_sgd()
         except Exception:
-            bal = 0.0
+            pnl = 0.0
+        bal = round(cfg.PAPER_STARTING_CAPITAL + pnl, 2)
+        log.info(f"[PAPER] Balance: SGD {bal:.2f}  (start={cfg.PAPER_STARTING_CAPITAL} pnl={pnl:+.2f})")
         return {
             "balance"    : bal,
             "balance_sgd": bal,
@@ -172,24 +212,19 @@ class PaperTrader:
     def get_candles(self, instrument=None, granularity=None, count=None):
         import yfinance as yf
         try:
-            raw = yf.download(
-                cfg.SYMBOL_YF, period="6mo", interval="1d",
-                progress=False, auto_adjust=True
-            )
+            raw = yf.download(cfg.SYMBOL_YF, period="6mo", interval="1d",
+                              progress=False, auto_adjust=True)
             if raw.empty:
                 log.error("yfinance returned empty dataframe")
                 return pd.DataFrame()
-
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
-
             needed = ["Open", "High", "Low", "Close", "Volume"]
-            raw    = raw[[c for c in needed if c in raw.columns]]
+            raw = raw[[c for c in needed if c in raw.columns]]
             raw.index.name = "Date"
             df = raw.reset_index()
             df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-            df = df.dropna(subset=["Close"])
-            df = df.sort_values("Date").reset_index(drop=True)
+            df = df.dropna(subset=["Close"]).sort_values("Date").reset_index(drop=True)
             log.info(f"[PAPER] yfinance: {len(df)} candles")
             return df
         except Exception as e:
@@ -205,15 +240,10 @@ class PaperTrader:
 
     def place_order(self, direction, entry, tp, sl, units=None):
         units = units or cfg.UNITS
-        trade = {
-            "status"    : "FILLED",
-            "trade_id"  : f"PAPER_{len(self._trades)+1:03d}",
-            "fill_price": entry,
-            "direction" : direction,
-            "units"     : units,
-            "tp"        : tp,
-            "sl"        : sl,
-        }
+        trade = {"status": "FILLED",
+                 "trade_id"  : f"PAPER_{len(self._trades)+1:03d}",
+                 "fill_price": entry, "direction": direction,
+                 "units": units, "tp": tp, "sl": sl}
         self._trades.append(trade)
         log.info(f"[PAPER] {direction} {units:,} @ {entry} | TP={tp} SL={sl}")
         return trade
@@ -234,8 +264,19 @@ class PaperTrader:
 
 
 def get_trader():
+    """
+    Return correct trader based on BOT_MODE env var.
+    BOT_MODE=live   -> OandaTrader (real OANDA account, real orders)
+    BOT_MODE=paper  -> PaperTrader (yfinance data, no real orders)
+    """
     if cfg.BOT_MODE == "live":
-        log.info("LIVE mode — OandaTrader")
+        if not cfg.OANDA_API_KEY or not cfg.OANDA_ACCOUNT_ID:
+            raise ValueError(
+                "BOT_MODE=live requires OANDA_API_KEY and OANDA_ACCOUNT_ID env vars. "
+                "Check Railway environment variables."
+            )
+        log.info("LIVE mode — OandaTrader (real orders)")
         return OandaTrader()
-    log.info("PAPER mode — PaperTrader")
+
+    log.info("PAPER mode — PaperTrader (no real orders)")
     return PaperTrader()

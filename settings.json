@@ -31,7 +31,8 @@
     "units": 50000,
     "usd_sgd_rate": 1.35,
     "max_trades_day": 1,
-    "max_open_trades": 1
+    "max_open_trades": 1,
+    "paper_starting_capital": 10000
   },
   "risk": {
     "max_loss_per_week_sgd": 500,

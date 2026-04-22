@@ -38,7 +38,8 @@ SL_PIPS    = _CFG["trade"]["sl_pips"]
 PIP_SIZE   = _CFG["trade"]["pip_size"]
 UNITS      = _CFG["trade"]["units"]
 USD_SGD    = _CFG["trade"]["usd_sgd_rate"]
-MAX_TRADES_DAY = _CFG["trade"]["max_trades_day"]
+MAX_TRADES_DAY          = _CFG["trade"]["max_trades_day"]
+PAPER_STARTING_CAPITAL  = _CFG["trade"].get("paper_starting_capital", 10000)  # SGD — set to your actual account size
 
 SGD_PER_PIP = round(0.91 * USD_SGD * (UNITS/10000), 4)
 TP_SGD      = round(TP_PIPS * SGD_PER_PIP)

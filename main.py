@@ -50,7 +50,7 @@ def start_scheduler():
         acct   = trader.get_account_summary()
         wk     = weekly_stats()
         tg.alert_startup(
-            balance_sgd   = acct.get("balance_sgd") or acct.get("balance"),
+            balance_sgd   = acct.get("balance_sgd") if acct.get("balance_sgd") is not None else acct.get("balance"),
             open_trades   = acct.get("open_trades", 0),
             weekly_wins   = wk["wins"],
             weekly_losses = wk["losses"],
