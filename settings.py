@@ -1,100 +1,74 @@
-"""
-settings.py — Load and expose all configuration
-================================================
-Reads settings.json + .env secrets into one place.
-"""
-
-import os
-import json
+"""settings.py — Config loader for JPY Day Scalper"""
+import os, json
 from pathlib import Path
 from dotenv import load_dotenv
-
 load_dotenv()
 
 _BASE = Path(__file__).parent
 _CFG  = json.loads((_BASE / "settings.json").read_text())
 
-# ── OANDA ─────────────────────────────────────────────────────────────────────
 OANDA_API_KEY    = os.getenv("OANDA_API_KEY", "")
 OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
 OANDA_ENV        = os.getenv("OANDA_ENV", "practice")
 BOT_MODE         = os.getenv("BOT_MODE", "paper")
+OANDA_BASE_URL   = (_CFG["oanda"]["base_url_live"] if OANDA_ENV=="live"
+                    else _CFG["oanda"]["base_url_practice"])
 
-OANDA_BASE_URL = (
-    _CFG["oanda"]["base_url_live"]
-    if OANDA_ENV == "live"
-    else _CFG["oanda"]["base_url_practice"]
-)
-
-# ── Telegram — FIX BUG 3: accept BOTH env var names ──────────────────────────
-# Railway uses TELEGRAM_BOT_TOKEN, some setups use TELEGRAM_TOKEN
-TELEGRAM_TOKEN   = (
-    os.getenv("TELEGRAM_BOT_TOKEN") or
-    os.getenv("TELEGRAM_TOKEN") or
-    ""
-)
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or ""
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# ── Pair ──────────────────────────────────────────────────────────────────────
 PAIR       = _CFG["pair"]
 PAIR_LABEL = _CFG["pair_label"]
 SYMBOL_YF  = _CFG["symbol_yf"]
 
-# ── Strategy ──────────────────────────────────────────────────────────────────
-EMA_FAST    = _CFG["strategy"]["ema_fast"]
-EMA_SLOW    = _CFG["strategy"]["ema_slow"]
-RSI_PERIOD  = _CFG["strategy"]["rsi_period"]
-RSI_MIN     = _CFG["strategy"]["rsi_min"]
-RSI_MAX     = _CFG["strategy"]["rsi_max"]
-GRANULARITY = _CFG["strategy"]["granularity"]
-CANDLES     = _CFG["strategy"]["candles"]
+EMA_FAST        = _CFG["strategy"]["ema_fast"]
+EMA_SLOW        = _CFG["strategy"]["ema_slow"]
+RSI_PERIOD      = _CFG["strategy"]["rsi_period"]
+RSI_LONG_MAX    = _CFG["strategy"]["rsi_long_max"]
+RSI_SHORT_MIN   = _CFG["strategy"]["rsi_short_min"]
+STOCH_K         = _CFG["strategy"]["stoch_k"]
+STOCH_D         = _CFG["strategy"]["stoch_d"]
+STOCH_LONG_MAX  = _CFG["strategy"]["stoch_long_max"]
+STOCH_SHORT_MIN = _CFG["strategy"]["stoch_short_min"]
+GRANULARITY     = _CFG["strategy"]["timeframe"]
+CANDLES         = _CFG["strategy"]["candles"]
 
-# ── Trade ─────────────────────────────────────────────────────────────────────
 TP_PIPS    = _CFG["trade"]["tp_pips"]
 SL_PIPS    = _CFG["trade"]["sl_pips"]
 PIP_SIZE   = _CFG["trade"]["pip_size"]
 UNITS      = _CFG["trade"]["units"]
 USD_SGD    = _CFG["trade"]["usd_sgd_rate"]
-MAX_TRADES = _CFG["trade"]["max_open_trades"]
+MAX_TRADES_DAY = _CFG["trade"]["max_trades_day"]
 
-SGD_PER_PIP = round(0.91 * USD_SGD, 4)
-TP_SGD      = round(TP_PIPS * (UNITS / 10000) * SGD_PER_PIP, 2)
-SL_SGD      = round(SL_PIPS * (UNITS / 10000) * SGD_PER_PIP, 2)
+SGD_PER_PIP = round(0.91 * USD_SGD * (UNITS/10000), 4)
+TP_SGD      = round(TP_PIPS * SGD_PER_PIP)
+SL_SGD      = round(SL_PIPS * SGD_PER_PIP)
 
-# ── Risk ──────────────────────────────────────────────────────────────────────
 MAX_LOSS_WEEK = _CFG["risk"]["max_loss_per_week_sgd"]
 MAX_TRADES_WK = _CFG["risk"]["max_trades_per_week"]
 PAUSE_STREAK  = _CFG["risk"]["pause_on_loss_streak"]
 
-# ── Schedule ──────────────────────────────────────────────────────────────────
-RUN_HOUR_UTC = _CFG["schedule"]["run_hour_utc"]
-RUN_MIN_UTC  = _CFG["schedule"]["run_minute_utc"]
+RUN_TIMES_UTC = _CFG["schedule"]["run_times_utc"]
+RUN_LABELS    = _CFG["schedule"]["labels"]
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR    = _BASE / "logs"
 SIGNAL_LOG = str(LOG_DIR / "signal_log.csv")
 TRADE_LOG  = str(LOG_DIR / "trade_journal.csv")
 BOT_LOG    = str(LOG_DIR / "bot.log")
 
-
 def summary():
-    tg_ok = "configured" if TELEGRAM_TOKEN else "NOT SET"
+    tg = "configured" if TELEGRAM_TOKEN else "NOT SET"
     print(f"""
-╔══════════════════════════════════════════╗
-║  USD/JPY BOT  —  CONFIG SUMMARY         ║
-╠══════════════════════════════════════════╣
-║  Mode      : {BOT_MODE:<28}║
-║  OANDA env : {OANDA_ENV:<28}║
-║  Pair      : {PAIR_LABEL:<28}║
-║  Units     : {UNITS:<28,}║
-║  TP / SL   : {TP_PIPS} pips / {SL_PIPS} pips{' '*17}║
-║  TP SGD    : ~SGD {TP_SGD:<23.2f}║
-║  SL SGD    : ~SGD {SL_SGD:<23.2f}║
-║  EMA       : {EMA_FAST}/{EMA_SLOW}  RSI: {RSI_MIN}–{RSI_MAX}{' '*14}║
-║  Telegram  : {tg_ok:<28}║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+║   JPY Day Scalper — CONFIG                  ║
+╠══════════════════════════════════════════════╣
+║  Mode      : {BOT_MODE:<30}║
+║  OANDA env : {OANDA_ENV:<30}║
+║  Units     : {UNITS:<30,}║
+║  TP        : {TP_PIPS} pips  =  SGD {TP_SGD:<18}║
+║  SL        : {SL_PIPS} pips  =  SGD {SL_SGD:<18}║
+║  RR ratio  : 1:{TP_PIPS/SL_PIPS:.2f}{' '*25}║
+║  Strategy  : EMA9/21 + RSI + Stochastic     ║
+║  Telegram  : {tg:<30}║
+╚══════════════════════════════════════════════╝
 """)
-
-
-if __name__ == "__main__":
-    summary()
