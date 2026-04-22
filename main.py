@@ -27,7 +27,7 @@ BANNER = """
 ║   JPY Day Scalper  v1.0                         ║
 ║   Strategy : EMA9/21 + RSI + Stochastic         ║
 ║   Backtest : 82.7% WR  Jan-Apr 2026             ║
-║   TP 15pip / SL 12pip / 50k units               ║
+║   TP 15pip / SL 10pip / 50k units               ║
 ╚══════════════════════════════════════════════════╝
 """
 
