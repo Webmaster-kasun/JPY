@@ -69,5 +69,7 @@ RUN_TIMES_UTC = ["22:05", "14:35"]   # 06:05 SGT, 22:35 SGT
 RUN_LABELS    = ["06:05 SGT — Tokyo open", "22:35 SGT — NY/London overlap"]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
+LOG_DIR      = "logs"
+BOT_LOG      = "logs/bot.log"
 JOURNAL_FILE = "logs/trade_journal.csv"
 SIGNAL_LOG   = "logs/signal_log.csv"
