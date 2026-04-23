@@ -38,7 +38,12 @@ def _send(cfg, text: str) -> bool:
 def _bal_line(cfg, balance_sgd, open_pl=None) -> str:
     if balance_sgd is None:
         return ""
-    mode   = " (paper)" if cfg.BOT_MODE == "paper" else ""
+    if cfg.BOT_MODE == "live":
+        mode = ""
+    elif cfg.BOT_MODE == "demo":
+        mode = " (demo)"
+    else:
+        mode = " (paper)"
     pl_str = f"  unrealised {open_pl:+.2f}" if open_pl and open_pl != 0 else ""
     return f"💰 Balance   : <b>SGD {balance_sgd:,.2f}{mode}</b>{pl_str}\n"
 
@@ -50,7 +55,12 @@ def alert_startup(cfg, balance_sgd=None, open_trades=0,
     bal  = _bal_line(cfg, balance_sgd)
     wkly = (f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}\n"
             if (weekly_wins + weekly_losses) > 0 else "📊 This week : No trades yet\n")
-    mode_icon = "🟡" if cfg.BOT_MODE == "paper" else "🟢"
+    if cfg.BOT_MODE == "live":
+        mode_icon = "🟢"
+    elif cfg.BOT_MODE == "demo":
+        mode_icon = "🟠"
+    else:
+        mode_icon = "🟡"
     return _send(cfg,
         f"{mode_icon} <b>{cfg.PAIR_LABEL} Bot — Online</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"

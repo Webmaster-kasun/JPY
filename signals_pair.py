@@ -64,7 +64,7 @@ def calc_score(direction: str, e9: float, e21: float,
         rsi_score   = max(0, round(((r  - cfg.RSI_SHORT_MIN) / (50 - cfg.RSI_SHORT_MIN)) * 34))
         stoch_score = max(0, round(((sk - cfg.STOCH_SHORT_MIN) / (100 - cfg.STOCH_SHORT_MIN)) * 33))
 
-    total = min(100, ema_gap and ema_score + rsi_score + stoch_score or 0)
+    total = min(100, ema_score + rsi_score + stoch_score)
 
     if total >= 80:
         grade, stars = "Strong 🔥", "★★★★★"

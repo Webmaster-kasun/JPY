@@ -16,7 +16,7 @@ import os, json
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)  # Railway env vars always win
 
 _BASE = Path(__file__).parent
 
@@ -24,6 +24,10 @@ _JSON_MAP = {
     "usdjpy": "settings.json",
     "eurusd": "settings_eurusd.json",
     "gbpusd": "settings_gbpusd.json",
+    "audusd": "settings_audusd.json",
+    "usdchf": "settings_usdchf.json",
+    "nzdusd": "settings_nzdusd.json",
+    "usdcad": "settings_usdcad.json",
 }
 
 
@@ -37,7 +41,7 @@ class PairConfig:
         self.OANDA_API_KEY    = os.getenv("OANDA_API_KEY", "")
         self.OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
         self.OANDA_ENV        = os.getenv("OANDA_ENV", "practice")
-        self.BOT_MODE         = os.getenv("BOT_MODE", "paper")
+        self.BOT_MODE         = os.getenv("BOT_MODE", "demo")
         self.OANDA_BASE_URL   = (
             _CFG["oanda"]["base_url_live"]
             if self.OANDA_ENV == "live"
@@ -82,7 +86,14 @@ class PairConfig:
         # For JPY pairs pip value = 0.91 × USD_SGD × lots  (JPY pip = 0.01, 1 pip ≈ $0.91 at 110)
         # For USD-quoted pairs (EUR/USD, GBP/USD) 1 pip = $10 per 100k, so 0.91 * USD_SGD * lots
         # The formula is the same; accuracy depends on PIP_SIZE being set correctly per pair.
-        self.SGD_PER_PIP = round(0.91 * self.USD_SGD * (self.UNITS / 10000), 4)
+        # SGD per pip calculation differs by pair type:
+        # JPY pairs (USD/JPY): pip = 0.01, value ≈ 0.91 USD per 10k units
+        # USD-quoted pairs (EUR/USD, GBP/USD): pip = 0.0001, value = units × pip_size × USD_SGD
+        import math
+        if self.PIP_SIZE >= 0.01:   # JPY pair
+            self.SGD_PER_PIP = round(0.91 * self.USD_SGD * (self.UNITS / 10000), 4)
+        else:                        # EUR/USD, GBP/USD — pip value =  per 10k units
+            self.SGD_PER_PIP = round(self.UNITS * self.PIP_SIZE * self.USD_SGD, 4)
         self.TP_SGD      = round(self.TP_PIPS * self.SGD_PER_PIP)
         self.SL_SGD      = round(self.SL_PIPS * self.SGD_PER_PIP)
 
@@ -99,6 +110,7 @@ class PairConfig:
 
         # ── Logging ───────────────────────────────────────────────────────────
         self.LOG_DIR    = _BASE / "logs"
+        os.makedirs(self.LOG_DIR, exist_ok=True)  # ensure logs/ dir exists
         lg = _CFG.get("logging", {})
         self.SIGNAL_LOG = str(self.LOG_DIR / Path(lg.get("signal_log",   "logs/signal_log.csv")).name)
         self.TRADE_LOG  = str(self.LOG_DIR / Path(lg.get("trade_journal", "logs/trade_journal.csv")).name)

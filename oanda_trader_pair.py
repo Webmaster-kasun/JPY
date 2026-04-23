@@ -85,8 +85,8 @@ class OandaTrader:
         granularity = granularity or self.cfg.GRANULARITY
         count       = count       or self.cfg.CANDLES
         data = self._get(
-            f"/v3/accounts/{self.account_id}/instruments/{instrument}/candles",
-            params={"granularity": granularity, "count": count, "price": "M"},
+            f"/v3/instruments/{instrument}/candles",
+            params={"granularity": granularity, "count": count, "price": "M"}
         )
         candles = data.get("candles", [])
         if not candles:

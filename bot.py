@@ -100,10 +100,14 @@ def run():
     log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={sig.get('score',{}).get('total','?')}")
     tg.alert_signal(sig, candle_date, balance_sgd=balance_sgd)
 
+    # Paper mode: log the signal but do NOT send a real order.
+    # Balance is still fetched from the real OANDA demo account above.
     if cfg.BOT_MODE == "paper":
-        log.info(f"[PAPER] {sig['signal']} @ {sig['entry']} TP={sig['tp']} SL={sig['sl']}")
-        log.info("═══ Cycle complete (paper) ═══")
+        log.info(f"[PAPER] Signal only — no order placed: {sig['signal']} @ {sig['entry']} TP={sig['tp']} SL={sig['sl']}")
+        log.info("═══ Cycle complete (paper — signal only) ═══")
         return
+
+    # demo mode and live mode both proceed to place orders below
 
     fill = trader.place_order(
         direction = sig["signal"],
