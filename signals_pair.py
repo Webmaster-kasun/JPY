@@ -54,8 +54,10 @@ def add_indicators(df, cfg):
 def calc_score(direction: str, e9: float, e21: float,
                r: float, sk: float, cfg) -> dict:
     """Score 0–100 — identical formula to signals.py, reads thresholds from cfg."""
-    ema_gap   = abs(e9 - e21)
-    ema_score = min(33, round((ema_gap / 0.30) * 33))
+    # EMA gap score — pip-relative so 30 pips = full score on ALL pairs
+    ema_gap      = abs(e9 - e21)
+    ema_gap_pips = ema_gap / cfg.PIP_SIZE          # convert to pips
+    ema_score    = min(33, round((ema_gap_pips / 30) * 33))  # 30 pip gap = full 33pts
 
     if direction == "LONG":
         rsi_score   = max(0, round(((cfg.RSI_LONG_MAX - r)  / (cfg.RSI_LONG_MAX - 50)) * 34))
