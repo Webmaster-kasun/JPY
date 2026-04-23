@@ -1,20 +1,21 @@
-name: 3-Pair Day Scalper
+name: JPY Day Scalper
+
 on:
   schedule:
-    - cron: "5 22 * * 0-4"   # 06:05 SGT — Tokyo open      (USD/JPY)
-    - cron: "5 7  * * 1-5"   # 15:05 SGT — London open     (EUR/USD + GBP/USD)
-    - cron: "35 14 * * 1-5"  # 22:35 SGT — NY/London overlap (all 3 pairs)
+    - cron: "5 22 * * 0-4"   # 06:05 SGT (Tokyo open)
+    - cron: "35 14 * * 1-5"  # 22:35 SGT (NY/London overlap)
   workflow_dispatch:
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
-      - name: Run signal check (all pairs)
+      - name: Run signal check
         env:
           OANDA_API_KEY:      ${{ secrets.OANDA_API_KEY }}
           OANDA_ACCOUNT_ID:   ${{ secrets.OANDA_ACCOUNT_ID }}
@@ -22,7 +23,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           BOT_MODE:           ${{ secrets.BOT_MODE }}
-        run: python multi_pair_main.py --once
+        run: python main.py --once
       - uses: actions/upload-artifact@v4
         if: always()
         with:
