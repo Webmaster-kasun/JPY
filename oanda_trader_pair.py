@@ -258,23 +258,26 @@ class PaperTrader:
         return {"status": "ALL_CLOSED"}
 
 
-def get_trader(cfg):
-    """Return the correct trader for this pair based on BOT_MODE and credentials."""
-    has_credentials = bool(cfg.OANDA_API_KEY and cfg.OANDA_ACCOUNT_ID)
+def get_trader(cfg=None):
+    """
+    SIMPLE RULE:
+    If OANDA_API_KEY and OANDA_ACCOUNT_ID exist in environment → OandaTrader (real balance).
+    If credentials missing → PaperTrader (fake balance).
+    BOT_MODE only controls whether orders are placed, not which balance is shown.
+    """
+    import os, sys
+    # Read DIRECTLY from os.environ at call time — bypasses any import-time caching
+    api_key    = os.environ.get("OANDA_API_KEY", "").strip()
+    account_id = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
 
-    if cfg.BOT_MODE == "live":
-        if not has_credentials:
-            raise ValueError(
-                f"[{cfg.PAIR_LABEL}] BOT_MODE=live requires OANDA_API_KEY and "
-                "OANDA_ACCOUNT_ID env vars."
-            )
-        log.info(f"[{cfg.PAIR_LABEL}] LIVE mode — OandaTrader (real orders)")
-        return OandaTrader(cfg)
+    if api_key and account_id:
+        mode = (cfg.BOT_MODE if cfg else None) or os.environ.get("BOT_MODE", "paper")
+        log.info(f"{mode.upper()} mode — OandaTrader (OANDA API | real balance)")
+        if cfg:
+            return OandaTrader(cfg)
+        return OandaTrader()
 
-    if cfg.BOT_MODE in ("demo", "paper") and has_credentials:
-        log.info(f"[{cfg.PAIR_LABEL}] {cfg.BOT_MODE.upper()} mode — OandaTrader "
-                 f"(OANDA {cfg.OANDA_ENV} account)")
-        return OandaTrader(cfg)
-
-    log.info(f"[{cfg.PAIR_LABEL}] PAPER mode — PaperTrader (yfinance + paper balance)")
-    return PaperTrader(cfg)
+    log.warning("No OANDA credentials in environment — using PaperTrader (fake balance)")
+    if cfg:
+        return PaperTrader(cfg)
+    return PaperTrader()

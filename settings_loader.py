@@ -37,11 +37,13 @@ class PairConfig:
     def __init__(self, json_path: Path):
         _CFG = json.loads(json_path.read_text())
 
-        # ── OANDA credentials (from env, same for all pairs) ─────────────────
-        self.OANDA_API_KEY    = os.getenv("OANDA_API_KEY", "")
-        self.OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
-        self.OANDA_ENV        = os.getenv("OANDA_ENV", "practice")
-        self.BOT_MODE         = os.getenv("BOT_MODE", "demo")
+        # ── OANDA credentials — read from os.environ directly at instantiation ──
+        # Using os.environ (not os.getenv) ensures we get Railway vars,
+        # not any cached values from import-time load_dotenv()
+        self.OANDA_API_KEY    = os.environ.get("OANDA_API_KEY", "").strip()
+        self.OANDA_ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
+        self.OANDA_ENV        = os.environ.get("OANDA_ENV", "practice").strip()
+        self.BOT_MODE         = os.environ.get("BOT_MODE", "paper").strip()
         self.OANDA_BASE_URL   = (
             _CFG["oanda"]["base_url_live"]
             if self.OANDA_ENV == "live"
@@ -49,9 +51,9 @@ class PairConfig:
         )
 
         # ── Telegram ──────────────────────────────────────────────────────────
-        self.TELEGRAM_TOKEN   = (os.getenv("TELEGRAM_BOT_TOKEN")
-                                 or os.getenv("TELEGRAM_TOKEN") or "")
-        self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+        self.TELEGRAM_TOKEN   = (os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+                                 or os.environ.get("TELEGRAM_TOKEN", "").strip() or "")
+        self.TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
         # ── Pair identity ─────────────────────────────────────────────────────
         self.PAIR        = _CFG["pair"]           # e.g. "EUR_USD"

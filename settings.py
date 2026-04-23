@@ -7,9 +7,9 @@ load_dotenv(override=False)  # Railway env vars always win
 _BASE = Path(__file__).parent
 _CFG  = json.loads((_BASE / "settings.json").read_text())
 
-OANDA_API_KEY    = os.getenv("OANDA_API_KEY", "")
-OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
-OANDA_ENV        = os.getenv("OANDA_ENV", "practice")   # "practice" = demo, "live" = real money
+OANDA_API_KEY    = os.environ.get("OANDA_API_KEY", "").strip()
+OANDA_ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
+OANDA_ENV        = os.environ.get("OANDA_ENV", "practice").strip()   # "practice" = demo, "live" = real money
 BOT_MODE         = os.getenv("BOT_MODE", "demo")       # "paper"=no orders, "demo"=orders on demo, "live"=orders on live
 OANDA_BASE_URL   = (_CFG["oanda"]["base_url_live"] if OANDA_ENV == "live"
                     else _CFG["oanda"]["base_url_practice"])

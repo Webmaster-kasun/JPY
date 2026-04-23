@@ -263,40 +263,26 @@ class PaperTrader:
         return {"status": "ALL_CLOSED"}
 
 
-def get_trader():
+def get_trader(cfg=None):
     """
-    Return the correct trader based on BOT_MODE and OANDA credentials.
-
-    BOT_MODE=live  + credentials present -> OandaTrader (real live account, real orders)
-    BOT_MODE=demo  + credentials present -> OandaTrader (OANDA practice/demo account,
-                                             real orders on demo, shows actual OANDA balance)
-    BOT_MODE=paper + credentials present -> OandaTrader (OANDA practice account,
-                                             NO orders placed, but shows real OANDA balance)
-    BOT_MODE=paper + no credentials      -> PaperTrader (yfinance data, fake balance)
-
-    FIX: Previously BOT_MODE=paper always used PaperTrader which showed a fake
-    paper_starting_capital balance instead of the real OANDA demo account balance.
-    Now, if OANDA credentials are present we always connect to OANDA for real balance data.
+    SIMPLE RULE:
+    If OANDA_API_KEY and OANDA_ACCOUNT_ID exist in environment → OandaTrader (real balance).
+    If credentials missing → PaperTrader (fake balance).
+    BOT_MODE only controls whether orders are placed, not which balance is shown.
     """
-    has_credentials = bool(cfg.OANDA_API_KEY and cfg.OANDA_ACCOUNT_ID)
+    import os, sys
+    # Read DIRECTLY from os.environ at call time — bypasses any import-time caching
+    api_key    = os.environ.get("OANDA_API_KEY", "").strip()
+    account_id = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
 
-    if cfg.BOT_MODE == "live":
-        if not has_credentials:
-            raise ValueError(
-                "BOT_MODE=live requires OANDA_API_KEY and OANDA_ACCOUNT_ID env vars. "
-                "Check Railway environment variables."
-            )
-        log.info("LIVE mode — OandaTrader (real orders on live account)")
+    if api_key and account_id:
+        mode = (cfg.BOT_MODE if cfg else None) or os.environ.get("BOT_MODE", "paper")
+        log.info(f"{mode.upper()} mode — OandaTrader (OANDA API | real balance)")
+        if cfg:
+            return OandaTrader(cfg)
         return OandaTrader()
 
-    if cfg.BOT_MODE in ("demo", "paper") and has_credentials:
-        log.info(
-            f"{cfg.BOT_MODE.upper()} mode — OandaTrader connected to OANDA "
-            f"{'practice' if cfg.OANDA_ENV != 'live' else 'live'} account "
-            f"(balance shown from OANDA)"
-        )
-        return OandaTrader()
-
-    # Fallback: no credentials at all — use paper trader
-    log.info("PAPER mode — PaperTrader (no OANDA credentials, using yfinance + paper balance)")
+    log.warning("No OANDA credentials in environment — using PaperTrader (fake balance)")
+    if cfg:
+        return PaperTrader(cfg)
     return PaperTrader()
