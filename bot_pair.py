@@ -101,9 +101,16 @@ def run(cfg):
         log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (trade open) ═══")
         return
 
+    # ── Score filter ─────────────────────────────────────────────────────────
+    score_val = (sig.get('score') or {}).get('total', 0)
+    if score_val < cfg.MIN_SCORE:
+        log.info(f"[{cfg.PAIR_LABEL}] Score {score_val}/100 below minimum {cfg.MIN_SCORE} — skipping")
+        tgp.alert_weak_signal(cfg, sig, candle_date, score_val, cfg.MIN_SCORE)
+        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (weak signal) ═══")
+        return
+
     # ── Place order ───────────────────────────────────────────────────────────
-    log.info(f"[{cfg.PAIR_LABEL}] Signal: {sig['signal']} @ {sig['entry']}  "
-             f"score={sig.get('score', {}).get('total', '?')}")
+    log.info(f"[{cfg.PAIR_LABEL}] Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
     tgp.alert_signal(cfg, sig, candle_date, balance_sgd=balance_sgd)
 
     if cfg.BOT_MODE == "paper":

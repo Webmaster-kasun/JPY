@@ -141,8 +141,8 @@ class OandaTrader:
                 "instrument" : cfg.PAIR,
                 "units"      : str(signed_units),
                 "timeInForce": "FOK",
-                "takeProfitOnFill": {"price": str(tp), "timeInForce": "GTC"},
-                "stopLossOnFill"  : {"price": str(sl), "timeInForce": "GTC"},
+                "takeProfitOnFill": {"price": f"{tp:.5f}", "timeInForce": "GTC"},
+                "stopLossOnFill"  : {"price": f"{sl:.5f}", "timeInForce": "GTC"},
             }
         }
         log.info(f"Placing {direction} | {signed_units:+,} units | TP={tp} SL={sl}")

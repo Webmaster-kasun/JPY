@@ -73,6 +73,7 @@ class PairConfig:
         self.STOCH_SHORT_MIN = s["stoch_short_min"]
         self.GRANULARITY     = s["timeframe"]
         self.CANDLES         = s["candles"]
+        self.MIN_SCORE       = s.get("min_score_to_trade", 50)
 
         # ── Trade ─────────────────────────────────────────────────────────────
         t = _CFG["trade"]

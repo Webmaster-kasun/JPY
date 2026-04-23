@@ -22,7 +22,8 @@
     "stoch_long_max": 85,
     "stoch_short_min": 15,
     "direction": "both",
-    "tp_pips": 25
+    "tp_pips": 25,
+    "min_score_to_trade": 50
   },
   "trade": {
     "tp_pips": 25,
@@ -45,8 +46,8 @@
       "14:35"
     ],
     "labels": [
-      "15:05 SGT — London open",
-      "22:35 SGT — NY/London overlap"
+      "15:05 SGT \u2014 London open",
+      "22:35 SGT \u2014 NY/London overlap"
     ],
     "timezone": "Asia/Singapore"
   },

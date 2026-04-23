@@ -15,9 +15,11 @@ import logger as log
 class OandaTrader:
 
     def __init__(self, cfg):
+        import os as _os
         self.cfg        = cfg
-        self.api_key    = cfg.OANDA_API_KEY
-        self.account_id = cfg.OANDA_ACCOUNT_ID
+        # Read credentials from os.environ at instantiation — never from cached cfg
+        self.api_key    = _os.environ.get("OANDA_API_KEY", "").strip() or cfg.OANDA_API_KEY
+        self.account_id = _os.environ.get("OANDA_ACCOUNT_ID", "").strip() or cfg.OANDA_ACCOUNT_ID
         self.base_url   = cfg.OANDA_BASE_URL
         self.headers    = {
             "Authorization": f"Bearer {self.api_key}",
@@ -134,8 +136,8 @@ class OandaTrader:
                 "instrument" : self.cfg.PAIR,
                 "units"      : str(signed_units),
                 "timeInForce": "FOK",
-                "takeProfitOnFill": {"price": str(tp), "timeInForce": "GTC"},
-                "stopLossOnFill"  : {"price": str(sl), "timeInForce": "GTC"},
+                "takeProfitOnFill": {"price": f"{tp:.5f}", "timeInForce": "GTC"},
+                "stopLossOnFill"  : {"price": f"{sl:.5f}", "timeInForce": "GTC"},
             }
         }
         log.info(f"[{self.cfg.PAIR_LABEL}] Placing {direction} | {signed_units:+,} units | "

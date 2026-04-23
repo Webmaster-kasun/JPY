@@ -124,7 +124,7 @@ def get_signal(df):
     r    = float(cur["RSI"])
     sk   = float(cur["StochK"]) if not np.isnan(cur["StochK"]) else 50.0
     atr_ = float(cur["ATR"])
-    entry= round(float(cur["Close"]), 4)
+    entry= round(float(cur["Close"]), 5)
     pip  = cfg.PIP_SIZE
 
     long_checks = {
@@ -138,10 +138,10 @@ def get_signal(df):
         "stoch_not_oversold"  : sk > cfg.STOCH_SHORT_MIN,
     }
 
-    tp_long  = round(entry + cfg.TP_PIPS * pip, 4)
-    sl_long  = round(entry - cfg.SL_PIPS * pip, 4)
-    tp_short = round(entry - cfg.TP_PIPS * pip, 4)
-    sl_short = round(entry + cfg.SL_PIPS * pip, 4)
+    tp_long  = round(entry + cfg.TP_PIPS * pip, 5)
+    sl_long  = round(entry - cfg.SL_PIPS * pip, 5)
+    tp_short = round(entry - cfg.TP_PIPS * pip, 5)
+    sl_short = round(entry + cfg.SL_PIPS * pip, 5)
 
     base = {
         "entry"   : entry,

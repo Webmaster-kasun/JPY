@@ -96,8 +96,16 @@ def run():
         log.info("═══ Cycle complete (trade open) ═══")
         return
 
+    # ── Score filter ─────────────────────────────────────────────────────────
+    score_val = (sig.get('score') or {}).get('total', 0)
+    if score_val < cfg.MIN_SCORE:
+        log.info(f"Score {score_val}/100 below minimum {cfg.MIN_SCORE} — signal too weak, skipping")
+        tg.alert_weak_signal(sig, candle_date, score_val, cfg.MIN_SCORE)
+        log.info("═══ Cycle complete (weak signal) ═══")
+        return
+
     # ── Place order ───────────────────────────────────────────────────────────
-    log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={sig.get('score',{}).get('total','?')}")
+    log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
     tg.alert_signal(sig, candle_date, balance_sgd=balance_sgd)
 
     # Paper mode: log the signal but do NOT send a real order.
