@@ -106,6 +106,29 @@ PAIR_CYCLES = {
 def start_scheduler():
     print(BANNER)
 
+    # ── Debug: show what Telegram credentials the bot sees at runtime ──
+    import os
+    tok = os.environ.get("TELEGRAM_BOT_TOKEN", "") or os.environ.get("TELEGRAM_TOKEN", "")
+    cid = os.environ.get("TELEGRAM_CHAT_ID", "")
+    log.info(f"[TELEGRAM] token set: {bool(tok)} | chat_id set: {bool(cid)} | chat_id='{cid}'")
+    if tok:
+        log.info(f"[TELEGRAM] token prefix: {tok[:10]}...")
+    else:
+        log.warning("[TELEGRAM] *** NO TOKEN FOUND — messages will be skipped ***")
+
+    # ── Send startup alert ──────────────────────────────────────────────
+    try:
+        from oanda_trader import get_trader
+        trader = get_trader()
+        acc = trader.get_account_summary()
+        tg.alert_startup(
+            balance_sgd=acc.get("balance_sgd"),
+            open_trades=acc.get("open_trades", 0),
+        )
+        log.info("[TELEGRAM] Startup alert sent")
+    except Exception as e:
+        log.error(f"[TELEGRAM] Startup alert failed: {e}")
+
     # USD/JPY schedule
     for t, lbl in zip(jpy_cfg.RUN_TIMES_UTC, jpy_cfg.RUN_LABELS):
         schedule.every().day.at(t).do(cycle_jpy)
