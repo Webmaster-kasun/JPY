@@ -74,3 +74,6 @@ LOG_DIR      = "logs"
 BOT_LOG      = "logs/bot.log"
 JOURNAL_FILE = "logs/trade_journal.csv"
 SIGNAL_LOG   = "logs/signal_log.csv"
+
+# ── Trade log ─────────────────────────────────────────────────────────────────
+TRADE_LOG = "logs/trades_usdjpy.csv"
