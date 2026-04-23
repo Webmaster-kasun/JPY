@@ -1,1 +1,1 @@
-worker: python multi_pair_main.py
+worker: python main.py

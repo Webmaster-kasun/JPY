@@ -265,38 +265,18 @@ class PaperTrader:
 
 def get_trader():
     """
-    Return the correct trader based on BOT_MODE and OANDA credentials.
-
-    BOT_MODE=live  + credentials present -> OandaTrader (real live account, real orders)
-    BOT_MODE=demo  + credentials present -> OandaTrader (OANDA practice/demo account,
-                                             real orders on demo, shows actual OANDA balance)
-    BOT_MODE=paper + credentials present -> OandaTrader (OANDA practice account,
-                                             NO orders placed, but shows real OANDA balance)
-    BOT_MODE=paper + no credentials      -> PaperTrader (yfinance data, fake balance)
-
-    FIX: Previously BOT_MODE=paper always used PaperTrader which showed a fake
-    paper_starting_capital balance instead of the real OANDA demo account balance.
-    Now, if OANDA credentials are present we always connect to OANDA for real balance data.
+    Return correct trader based on BOT_MODE env var.
+    BOT_MODE=live   -> OandaTrader (real OANDA account, real orders)
+    BOT_MODE=paper  -> PaperTrader (yfinance data, no real orders)
     """
-    has_credentials = bool(cfg.OANDA_API_KEY and cfg.OANDA_ACCOUNT_ID)
-
     if cfg.BOT_MODE == "live":
-        if not has_credentials:
+        if not cfg.OANDA_API_KEY or not cfg.OANDA_ACCOUNT_ID:
             raise ValueError(
                 "BOT_MODE=live requires OANDA_API_KEY and OANDA_ACCOUNT_ID env vars. "
                 "Check Railway environment variables."
             )
-        log.info("LIVE mode — OandaTrader (real orders on live account)")
+        log.info("LIVE mode — OandaTrader (real orders)")
         return OandaTrader()
 
-    if cfg.BOT_MODE in ("demo", "paper") and has_credentials:
-        log.info(
-            f"{cfg.BOT_MODE.upper()} mode — OandaTrader connected to OANDA "
-            f"{'practice' if cfg.OANDA_ENV != 'live' else 'live'} account "
-            f"(balance shown from OANDA)"
-        )
-        return OandaTrader()
-
-    # Fallback: no credentials at all — use paper trader
-    log.info("PAPER mode — PaperTrader (no OANDA credentials, using yfinance + paper balance)")
+    log.info("PAPER mode — PaperTrader (no real orders)")
     return PaperTrader()

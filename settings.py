@@ -9,9 +9,9 @@ _CFG  = json.loads((_BASE / "settings.json").read_text())
 
 OANDA_API_KEY    = os.getenv("OANDA_API_KEY", "")
 OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
-OANDA_ENV        = os.getenv("OANDA_ENV", "practice")   # "practice" = demo, "live" = real money
-BOT_MODE         = os.getenv("BOT_MODE", "paper")       # "paper"=no orders, "demo"=orders on demo, "live"=orders on live
-OANDA_BASE_URL   = (_CFG["oanda"]["base_url_live"] if OANDA_ENV == "live"
+OANDA_ENV        = os.getenv("OANDA_ENV", "practice")
+BOT_MODE         = os.getenv("BOT_MODE", "paper")
+OANDA_BASE_URL   = (_CFG["oanda"]["base_url_live"] if OANDA_ENV=="live"
                     else _CFG["oanda"]["base_url_practice"])
 
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or ""
