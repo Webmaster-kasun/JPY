@@ -1,1 +1,8 @@
-worker: python multi_pair_main.py
+oandapyV20
+pandas
+numpy
+requests
+python-dotenv
+schedule
+yfinance
+python-telegram-bot
