@@ -1,75 +1,59 @@
-"""settings.py — Config loader for JPY Day Scalper"""
-import os, json
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(override=False)  # Railway env vars always win
+"""
+risk.py — Position sizing and risk gate checks
+==============================================
+"""
 
-_BASE = Path(__file__).parent
-_CFG  = json.loads((_BASE / "settings.json").read_text())
+import settings as cfg
+import journal
 
-OANDA_API_KEY    = os.environ.get("OANDA_API_KEY", "").strip()
-OANDA_ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
-OANDA_ENV        = os.environ.get("OANDA_ENV", "practice").strip()   # "practice" = demo, "live" = real money
-BOT_MODE         = os.getenv("BOT_MODE", "demo")       # "paper"=no orders, "demo"=orders on demo, "live"=orders on live
-OANDA_BASE_URL   = (_CFG["oanda"]["base_url_live"] if OANDA_ENV == "live"
-                    else _CFG["oanda"]["base_url_practice"])
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or ""
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+def calc_pnl_sgd(result: str, tp_pips: int = None, sl_pips: int = None,
+                 units: int = None) -> float:
+    tp_pips = tp_pips or cfg.TP_PIPS
+    sl_pips = sl_pips or cfg.SL_PIPS
+    lots    = (units or cfg.UNITS) / 10_000
+    sgd_pip = 0.91 * cfg.USD_SGD
+    if result == "WIN":
+        return  round(tp_pips * lots * sgd_pip, 2)
+    return     -round(sl_pips * lots * sgd_pip, 2)
 
-PAIR       = _CFG["pair"]
-PAIR_LABEL = _CFG["pair_label"]
-SYMBOL_YF  = _CFG["symbol_yf"]
 
-EMA_FAST        = _CFG["strategy"]["ema_fast"]
-EMA_SLOW        = _CFG["strategy"]["ema_slow"]
-RSI_PERIOD      = _CFG["strategy"]["rsi_period"]
-RSI_LONG_MAX    = _CFG["strategy"]["rsi_long_max"]
-RSI_SHORT_MIN   = _CFG["strategy"]["rsi_short_min"]
-STOCH_K         = _CFG["strategy"]["stoch_k"]
-STOCH_D         = _CFG["strategy"]["stoch_d"]
-STOCH_LONG_MAX  = _CFG["strategy"]["stoch_long_max"]
-STOCH_SHORT_MIN = _CFG["strategy"]["stoch_short_min"]
-GRANULARITY     = _CFG["strategy"]["timeframe"]
-CANDLES         = _CFG["strategy"]["candles"]
+def check_risk_limits() -> tuple:
+    """
+    Return (True, "OK") if safe to trade,
+    or (False, reason) if limits are breached.
+    """
+    stats = journal.weekly_stats()
 
-TP_PIPS    = _CFG["trade"]["tp_pips"]
-SL_PIPS    = _CFG["trade"]["sl_pips"]
-PIP_SIZE   = _CFG["trade"]["pip_size"]
-UNITS      = _CFG["trade"]["units"]
-USD_SGD    = _CFG["trade"]["usd_sgd_rate"]
-MAX_TRADES_DAY          = _CFG["trade"]["max_trades_day"]
-PAPER_STARTING_CAPITAL  = _CFG["trade"].get("paper_starting_capital", 10000)  # SGD — set to your actual account size
+    # Too many losses this week
+    if stats["total"] >= cfg.MAX_TRADES_WK:
+        return False, f"Max trades/week reached ({cfg.MAX_TRADES_WK})"
 
-SGD_PER_PIP = round(0.91 * USD_SGD * (UNITS/10000), 4)
-TP_SGD      = round(TP_PIPS * SGD_PER_PIP)
-SL_SGD      = round(SL_PIPS * SGD_PER_PIP)
+    # Weekly loss exceeded
+    if stats["net_sgd"] <= -cfg.MAX_LOSS_WEEK:
+        return False, f"Weekly loss limit hit (SGD {stats['net_sgd']:.0f})"
 
-MAX_LOSS_WEEK = _CFG["risk"]["max_loss_per_week_sgd"]
-MAX_TRADES_WK = _CFG["risk"]["max_trades_per_week"]
-PAUSE_STREAK  = _CFG["risk"]["pause_on_loss_streak"]
+    # Loss streak
+    if stats["loss_streak"] >= cfg.PAUSE_STREAK:
+        return False, f"Loss streak = {stats['loss_streak']} — pausing"
 
-RUN_TIMES_UTC = _CFG["schedule"]["run_times_utc"]
-RUN_LABELS    = _CFG["schedule"]["labels"]
+    return True, "OK"
 
-LOG_DIR    = _BASE / "logs"
-SIGNAL_LOG = str(LOG_DIR / "signal_log.csv")
-TRADE_LOG  = str(LOG_DIR / "trade_journal.csv")
-BOT_LOG    = str(LOG_DIR / "bot.log")
 
-def summary():
-    tg = "configured" if TELEGRAM_TOKEN else "NOT SET"
+def print_risk_summary():
+    tp_sgd  = calc_pnl_sgd("WIN")
+    sl_sgd  = calc_pnl_sgd("LOSS")
     print(f"""
-╔══════════════════════════════════════════════╗
-║   JPY Day Scalper — CONFIG                  ║
-╠══════════════════════════════════════════════╣
-║  Mode      : {BOT_MODE:<30}║
-║  OANDA env : {OANDA_ENV:<30}║
-║  Units     : {UNITS:<30,}║
-║  TP        : {TP_PIPS} pips  =  SGD {TP_SGD:<18}║
-║  SL        : {SL_PIPS} pips  =  SGD {SL_SGD:<18}║
-║  RR ratio  : 1:{TP_PIPS/SL_PIPS:.2f}{' '*25}║
-║  Strategy  : EMA9/21 + RSI + Stochastic     ║
-║  Telegram  : {tg:<30}║
-╚══════════════════════════════════════════════╝
+  Risk Summary — USD/JPY ({cfg.UNITS:,} units)
+  TP {cfg.TP_PIPS} pips = SGD {tp_sgd:+.2f}
+  SL {cfg.SL_PIPS} pips = SGD {sl_sgd:.2f}
+  RR 1:{cfg.TP_PIPS/cfg.SL_PIPS:.1f}
+  Weekly scenarios (5 trades):
+    4W 1L  SGD {4*tp_sgd + 1*sl_sgd:+.0f}
+    3W 2L  SGD {3*tp_sgd + 2*sl_sgd:+.0f}  <- 80% WR target
+    2W 3L  SGD {2*tp_sgd + 3*sl_sgd:+.0f}
 """)
+
+
+if __name__ == "__main__":
+    print_risk_summary()

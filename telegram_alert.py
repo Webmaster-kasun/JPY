@@ -36,12 +36,11 @@ def _send(text: str) -> bool:
 
 
 def _bal_line(balance_sgd, open_pl=None) -> str:
-    """Format balance line — only shows if balance is not None."""
+    """Format balance line — always shows real OANDA balance (no fake paper label)."""
     if balance_sgd is None:
         return ""
-    mode = " (paper)" if cfg.BOT_MODE == "paper" else ""
     pl_str = f"  unrealised {open_pl:+.2f}" if open_pl and open_pl != 0 else ""
-    return f"💰 Balance   : <b>SGD {balance_sgd:,.2f}{mode}</b>{pl_str}\n"
+    return f"💰 Balance   : <b>SGD {balance_sgd:,.2f}</b>{pl_str}\n"
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -52,7 +51,12 @@ def alert_startup(balance_sgd=None, open_trades=0,
     bal  = _bal_line(balance_sgd)
     wkly = (f"📊 This week : {weekly_wins}W {weekly_losses}L  SGD {weekly_pnl:+.0f}\n"
             if (weekly_wins + weekly_losses) > 0 else "📊 This week : No trades yet\n")
-    mode_icon = "🟡" if cfg.BOT_MODE == "paper" else "🟢"
+    if cfg.BOT_MODE == "live":
+        mode_icon = "🟢"
+    elif cfg.BOT_MODE == "demo":
+        mode_icon = "🟠"
+    else:
+        mode_icon = "🟡"
     return _send(
         f"{mode_icon} <b>JPY Day Scalper — Online</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -114,8 +118,16 @@ def alert_signal(sig: dict, candle_date=None, balance_sgd=None):
     bar    = "█" * filled + "░" * (10 - filled)
 
     checks = sig.get("checks", {})
+    CHECK_LABELS = {
+        "uptrend"             : "EMA9 > EMA21",
+        "downtrend"           : "EMA9 < EMA21",
+        "rsi_not_overbought"  : f"RSI < {cfg.RSI_LONG_MAX}",
+        "rsi_not_oversold"    : f"RSI > {cfg.RSI_SHORT_MIN}",
+        "stoch_not_overbought": f"Stoch < {cfg.STOCH_LONG_MAX}",
+        "stoch_not_oversold"  : f"Stoch > {cfg.STOCH_SHORT_MIN}",
+    }
     ck = "".join(
-        f"{'✅' if v else '❌'} {k.replace('_',' ')}\n"
+        f"{'✅' if v else '❌'} {CHECK_LABELS.get(k, k.replace('_',' '))}\n"
         for k, v in checks.items()
     )
 
