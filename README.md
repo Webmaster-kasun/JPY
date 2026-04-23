@@ -1,283 +1,125 @@
-"""
-oanda_trader_pair.py — Per-pair OANDA REST API integration
-===========================================================
-Same logic as oanda_trader.py but all cfg references use an explicit cfg
-object so EUR/USD and GBP/USD use the correct PAIR, PIP_SIZE, TP/SL.
+# USD/JPY Pullback Bot
 
-USD/JPY still uses the original oanda_trader.py — untouched.
-"""
+**Strategy:** EMA9/21 Pullback on Daily Chart  
+**Backtest:** 83% WR — 5W/1L — SGD +399 over Jan–Apr 2026  
+**Target:** SGD +92 per win / SGD −61 per loss (50,000 units)
 
-import requests
-import pandas as pd
-import logger as log
+---
 
+## Folder Structure
 
-class OandaTrader:
+```
+jpyusd_live/
+├── .github/
+│   └── workflows/
+│       └── daily_trade.yml   ← GitHub Actions daily runner
+│
+├── main.py                   ← Entry point (Railway + CLI)
+├── bot.py                    ← Core orchestration logic
+├── signals.py                ← Indicators + signal generation
+├── oanda_trader.py           ← OANDA API + PaperTrader
+├── calendar_filter.py        ← News blackout filter
+├── telegram_alert.py         ← Telegram notifications
+├── risk.py                   ← Position sizing + risk gates
+├── journal.py                ← Trade logging (CSV)
+├── logger.py                 ← Unified logging
+├── backtest_usdjpy.py        ← Walk-forward backtester
+├── settings.py               ← Config loader
+│
+├── settings.json             ← All strategy parameters
+├── requirements.txt
+├── Procfile                  ← Railway worker
+├── railway.json              ← Railway deployment config
+├── .env.example              ← Secrets template
+├── .gitignore
+│
+├── logs/                     ← Auto-created
+│   ├── bot.log
+│   ├── signal_log.csv
+│   ├── trade_journal.csv
+│   └── backtest_usdjpy.csv
+└── outputs/                  ← Reports & exports
+```
 
-    def __init__(self, cfg):
-        self.cfg        = cfg
-        self.api_key    = cfg.OANDA_API_KEY
-        self.account_id = cfg.OANDA_ACCOUNT_ID
-        self.base_url   = cfg.OANDA_BASE_URL
-        self.headers    = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type" : "application/json",
-        }
+---
 
-    def _get(self, endpoint, params=None):
-        url = f"{self.base_url}{endpoint}"
-        try:
-            r = requests.get(url, headers=self.headers, params=params, timeout=10)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            log.error(f"[{self.cfg.PAIR_LABEL}] OANDA GET error [{endpoint}]: {e}")
-            return {}
+## Quick Start
 
-    def _post(self, endpoint, payload):
-        url = f"{self.base_url}{endpoint}"
-        try:
-            r = requests.post(url, headers=self.headers, json=payload, timeout=10)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            log.error(f"[{self.cfg.PAIR_LABEL}] OANDA POST error [{endpoint}]: {e}")
-            return {}
+```bash
+# 1. Install
+pip install -r requirements.txt
 
-    def get_account_summary(self):
-        data = self._get(f"/v3/accounts/{self.account_id}/summary")
-        if not data:
-            return {"balance": None, "balance_sgd": None,
-                    "currency": "SGD", "nav": None,
-                    "open_pl": 0.0, "open_trades": 0}
+# 2. Copy and fill in credentials
+cp .env.example .env
+# Edit .env with your OANDA keys + Telegram details
 
-        acc      = data.get("account", {})
-        balance  = acc.get("balance")
-        currency = acc.get("currency", "SGD")
-        nav      = acc.get("NAV")
-        open_pl  = acc.get("unrealizedPL", 0)
-        open_trades = int(acc.get("openTradeCount", 0))
+# 3. Test Telegram
+python main.py --test-tg
 
-        try:
-            balance = round(float(balance), 2) if balance is not None else None
-        except (ValueError, TypeError):
-            balance = None
-        try:
-            nav = round(float(nav), 2) if nav is not None else balance
-        except (ValueError, TypeError):
-            nav = balance
-        try:
-            open_pl = round(float(open_pl), 2)
-        except (ValueError, TypeError):
-            open_pl = 0.0
+# 4. Run backtest
+python main.py --backtest
 
-        return {
-            "balance"    : balance,
-            "balance_sgd": balance,
-            "currency"   : currency,
-            "nav"        : nav,
-            "open_pl"    : open_pl,
-            "open_trades": open_trades,
-        }
+# 5. Paper trade (no real orders)
+python main.py --once         # BOT_MODE=paper in .env
 
-    def get_candles(self, instrument=None, granularity=None, count=None):
-        instrument  = instrument  or self.cfg.PAIR
-        granularity = granularity or self.cfg.GRANULARITY
-        count       = count       or self.cfg.CANDLES
-        data = self._get(
-            f"/v3/instruments/{instrument}/candles",
-            params={"granularity": granularity, "count": count, "price": "M"}
-        )
-        candles = data.get("candles", [])
-        if not candles:
-            log.error(f"[{self.cfg.PAIR_LABEL}] get_candles: empty response")
-            return pd.DataFrame()
-        rows = []
-        for c in candles:
-            if not c.get("complete", True):
-                continue
-            mid = c["mid"]
-            rows.append({
-                "Date"  : pd.to_datetime(c["time"]).tz_localize(None),
-                "Open"  : float(mid["o"]),
-                "High"  : float(mid["h"]),
-                "Low"   : float(mid["l"]),
-                "Close" : float(mid["c"]),
-                "Volume": int(c.get("volume", 0)),
-            })
-        if not rows:
-            return pd.DataFrame()
-        df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
-        log.info(f"[{self.cfg.PAIR_LABEL}] Fetched {len(df)} candles ({instrument} {granularity})")
-        return df
+# 6. View journal
+python main.py --journal
 
-    def get_price(self, instrument=None):
-        instrument = instrument or self.cfg.PAIR
-        data = self._get(
-            f"/v3/accounts/{self.account_id}/pricing",
-            params={"instruments": instrument},
-        )
-        prices = data.get("prices", [])
-        if not prices:
-            return {}
-        p   = prices[0]
-        bid = float(p["bids"][0]["price"])
-        ask = float(p["asks"][0]["price"])
-        return {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 5)}
+# 7. Risk summary
+python main.py --risk
+```
 
-    def place_order(self, direction, entry, tp, sl, units=None):
-        units        = units or self.cfg.UNITS
-        signed_units = units if direction == "LONG" else -units
-        payload = {
-            "order": {
-                "type"       : "MARKET",
-                "instrument" : self.cfg.PAIR,
-                "units"      : str(signed_units),
-                "timeInForce": "FOK",
-                "takeProfitOnFill": {"price": str(tp), "timeInForce": "GTC"},
-                "stopLossOnFill"  : {"price": str(sl), "timeInForce": "GTC"},
-            }
-        }
-        log.info(f"[{self.cfg.PAIR_LABEL}] Placing {direction} | {signed_units:+,} units | "
-                 f"TP={tp} SL={sl}")
-        result = self._post(f"/v3/accounts/{self.account_id}/orders", payload)
-        if result.get("orderFillTransaction"):
-            fill = result["orderFillTransaction"]
-            return {
-                "status"    : "FILLED",
-                "trade_id"  : fill.get("tradeOpened", {}).get("tradeID"),
-                "fill_price": float(fill.get("price", entry)),
-                "direction" : direction,
-                "units"     : signed_units,
-                "tp"        : tp,
-                "sl"        : sl,
-            }
-        log.warning(f"[{self.cfg.PAIR_LABEL}] Order not filled: {result}")
-        return {"status": "FAILED", "raw": result}
+---
 
-    def get_open_trades(self, instrument=None):
-        instrument = instrument or self.cfg.PAIR
-        data   = self._get(f"/v3/accounts/{self.account_id}/openTrades")
-        trades = data.get("trades", [])
-        return [t for t in trades if t.get("instrument") == instrument]
+## Strategy Rules
 
-    def has_open_trade(self):
-        return len(self.get_open_trades()) > 0
+| Condition | Value |
+|---|---|
+| Trend | EMA9 > EMA21 (uptrend only) |
+| Pullback | Previous candle RED |
+| Bounce | Current candle GREEN |
+| RSI filter | RSI(14) between 50 and 77 |
+| TP | 15 pips |
+| SL | 10 pips |
+| Units | 50,000 (5 mini lots) |
+| RR | 1.5 : 1 |
 
-    def close_trade(self, trade_id):
-        result = self._post(
-            f"/v3/accounts/{self.account_id}/trades/{trade_id}/close", {})
-        log.info(f"[{self.cfg.PAIR_LABEL}] Closed trade {trade_id}")
-        return result
+---
 
-    def close_all(self):
-        result = self._post(
-            f"/v3/accounts/{self.account_id}/positions/{self.cfg.PAIR}/close",
-            {"longUnits": "ALL", "shortUnits": "ALL"},
-        )
-        log.info(f"[{self.cfg.PAIR_LABEL}] Closed all positions")
-        return result
+## Deployment Options
 
+### Option A — GitHub Actions (free, recommended to start)
+1. Push repo to GitHub
+2. Go to Settings → Secrets → add: `OANDA_API_KEY`, `OANDA_ACCOUNT_ID`, `OANDA_ENV`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `BOT_MODE`
+3. Runs automatically at 16:10 UTC Mon–Fri
+4. Manual trigger available in Actions tab
 
-class PaperTrader:
-    """Paper mode — uses yfinance for candles, no real orders."""
+### Option B — Railway (always-on)
+1. Connect repo to Railway
+2. Add env vars in Railway dashboard
+3. Deploy — `Procfile` sets the start command
 
-    def __init__(self, cfg):
-        self.cfg     = cfg
-        self._trades = []
-        log.info(f"[{cfg.PAIR_LABEL}] PaperTrader active — no real orders")
+---
 
-    def get_account_summary(self):
-        try:
-            import journal_pair as jp
-            pnl = jp.running_sgd(self.cfg)
-        except Exception:
-            pnl = 0.0
-        bal = round(self.cfg.PAPER_STARTING_CAPITAL + pnl, 2)
-        return {
-            "balance"    : bal,
-            "balance_sgd": bal,
-            "currency"   : "SGD",
-            "nav"        : bal,
-            "open_pl"    : 0.0,
-            "open_trades": len(self._trades),
-        }
+## Environment Variables
 
-    def get_candles(self, instrument=None, granularity=None, count=None):
-        import yfinance as yf
-        try:
-            raw = yf.download(self.cfg.SYMBOL_YF, period="6mo", interval="1d",
-                              progress=False, auto_adjust=True)
-            if raw.empty:
-                return pd.DataFrame()
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)
-            needed = ["Open", "High", "Low", "Close", "Volume"]
-            raw = raw[[c for c in needed if c in raw.columns]]
-            raw.index.name = "Date"
-            df = raw.reset_index()
-            df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-            return df.dropna(subset=["Close"]).sort_values("Date").reset_index(drop=True)
-        except Exception as e:
-            log.error(f"[{self.cfg.PAIR_LABEL}] yfinance error: {e}")
-            return pd.DataFrame()
+| Variable | Description | Example |
+|---|---|---|
+| `OANDA_API_KEY` | OANDA REST API token | `abc123...` |
+| `OANDA_ACCOUNT_ID` | OANDA account number | `101-001-...` |
+| `OANDA_ENV` | `practice` or `live` | `practice` |
+| `TELEGRAM_BOT_TOKEN` | From @BotFather | `123:ABC...` |
+| `TELEGRAM_CHAT_ID` | From @userinfobot | `-100...` |
+| `BOT_MODE` | `paper` or `live` | `paper` |
 
-    def get_price(self, instrument=None):
-        df = self.get_candles()
-        if df.empty:
-            return {}
-        c = float(df["Close"].iloc[-1])
-        return {"bid": c - 0.0001, "ask": c + 0.0001, "mid": c}
+---
 
-    def place_order(self, direction, entry, tp, sl, units=None):
-        units = units or self.cfg.UNITS
-        trade = {
-            "status"    : "FILLED",
-            "trade_id"  : f"PAPER_{len(self._trades)+1:03d}",
-            "fill_price": entry,
-            "direction" : direction,
-            "units"     : units,
-            "tp"        : tp,
-            "sl"        : sl,
-        }
-        self._trades.append(trade)
-        return trade
+## Going Live Checklist
 
-    def get_open_trades(self, instrument=None):
-        return self._trades
-
-    def has_open_trade(self):
-        return len(self._trades) > 0
-
-    def close_trade(self, trade_id):
-        self._trades = [t for t in self._trades if t["trade_id"] != trade_id]
-        return {"status": "CLOSED"}
-
-    def close_all(self):
-        self._trades = []
-        return {"status": "ALL_CLOSED"}
-
-
-def get_trader(cfg=None):
-    """
-    SIMPLE RULE:
-    If OANDA_API_KEY and OANDA_ACCOUNT_ID exist in environment → OandaTrader (real balance).
-    If credentials missing → PaperTrader (fake balance).
-    BOT_MODE only controls whether orders are placed, not which balance is shown.
-    """
-    import os, sys
-    # Read DIRECTLY from os.environ at call time — bypasses any import-time caching
-    api_key    = os.environ.get("OANDA_API_KEY", "").strip()
-    account_id = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
-
-    if api_key and account_id:
-        mode = (cfg.BOT_MODE if cfg else None) or os.environ.get("BOT_MODE", "paper")
-        log.info(f"{mode.upper()} mode — OandaTrader (OANDA API | real balance)")
-        if cfg:
-            return OandaTrader(cfg)
-        return OandaTrader()
-
-    log.warning("No OANDA credentials in environment — using PaperTrader (fake balance)")
-    if cfg:
-        return PaperTrader(cfg)
-    return PaperTrader()
+- [ ] Backtest passes on fresh data
+- [ ] Paper mode running cleanly for 1+ weeks
+- [ ] Telegram alerts working
+- [ ] OANDA practice account tested
+- [ ] Set `BOT_MODE=live` and `OANDA_ENV=live`
+- [ ] Fund live OANDA account
+- [ ] Monitor first 5 live trades closely

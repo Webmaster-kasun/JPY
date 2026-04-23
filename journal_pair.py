@@ -1,132 +1,160 @@
 """
-bot_pair.py — Pair-agnostic bot cycle
-======================================
-Identical logic to bot.py but accepts an explicit cfg object instead of
-importing the global settings module.  This lets multi_pair_main.py run
-EUR/USD and GBP/USD through the same engine while leaving the original
-bot.py + settings.py (USD/JPY) completely untouched.
+journal_pair.py — Per-pair trade journal (CSV-based)
+=====================================================
+Same logic as journal.py but reads log file paths from the cfg object so
+EUR/USD and GBP/USD each get their own journal files.
 
-Called by:
-    multi_pair_main.py   — the new 3-pair scheduler
-    main_eurusd.py       — standalone EUR/USD runner
-    main_gbpusd.py       — standalone GBP/USD runner
+USD/JPY still uses the original journal.py — untouched.
 """
 
-from datetime import datetime, timezone
+import os
+import csv
+from datetime import datetime, date, timedelta
 
 import logger as log
-import journal_pair as jp
-import telegram_alert_pair as tgp
-from signals_pair import get_signal, print_signal
-from calendar_filter import is_safe_to_trade, get_session_label
-from risk_pair import check_risk_limits
-from oanda_trader_pair import get_trader
+
+_SIG_HEADERS   = ["timestamp", "date", "signal", "entry", "tp", "sl",
+                   "rsi", "ema_fast", "ema_slow", "reason"]
+_TRADE_HEADERS = ["trade_id", "open_date", "close_date", "direction",
+                   "entry", "fill_price", "tp", "sl", "result", "pips",
+                   "sgd_pnl", "running_sgd", "mode", "notes"]
 
 
-def run(cfg):
-    """Execute one full bot cycle for the given pair config."""
-    now = datetime.now(timezone.utc)
-    log.info(f"═══ {cfg.PAIR_LABEL} cycle: {now.strftime('%Y-%m-%d %H:%M UTC')} ═══")
+def _init(filepath, headers):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    if not os.path.exists(filepath):
+        with open(filepath, "w", newline="") as f:
+            csv.writer(f).writerow(headers)
 
-    trader = get_trader(cfg)
 
-    # ── Account status ────────────────────────────────────────────────────────
-    acct        = trader.get_account_summary()
-    balance_sgd = acct.get("balance_sgd") if acct.get("balance_sgd") is not None \
-                  else acct.get("balance")
-    open_trades = acct.get("open_trades", 0)
-    open_pl     = acct.get("open_pl", 0.0)
-    currency    = acct.get("currency", "SGD")
+def log_signal(sig: dict, candle_date, cfg):
+    _init(cfg.SIGNAL_LOG, _SIG_HEADERS)
+    with open(cfg.SIGNAL_LOG, "a", newline="") as f:
+        csv.writer(f).writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            str(candle_date)[:10],
+            sig.get("signal", "NONE"),
+            sig.get("entry", ""),
+            sig.get("tp", ""),
+            sig.get("sl", ""),
+            sig.get("rsi", ""),
+            sig.get("ema_fast", ""),
+            sig.get("ema_slow", ""),
+            sig.get("reason", ""),
+        ])
 
-    if balance_sgd is not None:
-        log.info(f"[{cfg.PAIR_LABEL}] Balance: {currency} {balance_sgd:.2f}  "
-                 f"open_pl={open_pl:+.2f}  trades={open_trades}")
-    else:
-        log.warning(f"[{cfg.PAIR_LABEL}] Could not fetch account balance from OANDA")
 
-    # ── Weekly stats ──────────────────────────────────────────────────────────
-    wk = jp.weekly_stats(cfg)
+def log_trade(trade: dict, running_sgd: float, cfg, notes: str = "") -> str:
+    _init(cfg.TRADE_LOG, _TRADE_HEADERS)
+    trade_id = _next_id(cfg)
+    try:
+        pnl_val = float(trade.get("sgd_pnl", 0) or 0)
+    except (ValueError, TypeError):
+        pnl_val = 0.0
 
-    tgp.alert_session_start(
-        cfg           = cfg,
-        session_label = get_session_label(now),
-        balance_sgd   = balance_sgd,
-        open_trades   = open_trades,
-        open_pl       = open_pl,
-        weekly_pnl    = wk["net_sgd"],
-        weekly_wins   = wk["wins"],
-        weekly_losses = wk["losses"],
-    )
+    with open(cfg.TRADE_LOG, "a", newline="") as f:
+        csv.writer(f).writerow([
+            trade_id,
+            str(trade.get("open_date", ""))[:10],
+            str(trade.get("close_date", ""))[:10],
+            trade.get("direction", "LONG"),
+            trade.get("entry", ""),
+            trade.get("fill_price", trade.get("entry", "")),
+            trade.get("tp", ""),
+            trade.get("sl", ""),
+            trade.get("result", ""),
+            trade.get("pips", ""),
+            pnl_val,
+            round(running_sgd, 2),
+            cfg.BOT_MODE,
+            notes,
+        ])
+    log.info(f"[{cfg.PAIR_LABEL}] Trade logged: {trade_id} | "
+             f"{trade.get('result')} | SGD {pnl_val:+.2f}")
+    return trade_id
 
-    # ── Fetch candles ─────────────────────────────────────────────────────────
-    df = trader.get_candles()
-    if df is None or df.empty or len(df) < 20:
-        log.error(f"[{cfg.PAIR_LABEL}] No candle data — aborting cycle")
-        tgp.alert_error(cfg, "Could not fetch candle data from OANDA")
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (no data) ═══")
+
+def _next_id(cfg) -> str:
+    try:
+        with open(cfg.TRADE_LOG) as f:
+            rows = list(csv.reader(f))
+        return f"T{len(rows):03d}"
+    except Exception:
+        return "T001"
+
+
+def load_trades(cfg) -> list:
+    _init(cfg.TRADE_LOG, _TRADE_HEADERS)
+    try:
+        with open(cfg.TRADE_LOG) as f:
+            return list(csv.DictReader(f))
+    except Exception:
+        return []
+
+
+def running_sgd(cfg) -> float:
+    trades = load_trades(cfg)
+    if not trades:
+        return 0.0
+    try:
+        return float(trades[-1]["running_sgd"])
+    except (ValueError, KeyError):
+        return 0.0
+
+
+def weekly_stats(cfg) -> dict:
+    trades     = load_trades(cfg)
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    this_week  = [t for t in trades if t.get("open_date", "") >= str(week_start)]
+    wins   = sum(1 for t in this_week if t.get("result") == "WIN")
+    losses = sum(1 for t in this_week if t.get("result") == "LOSS")
+    try:
+        net = sum(float(t.get("sgd_pnl") or 0) for t in this_week)
+    except (ValueError, TypeError):
+        net = 0.0
+    total = len(this_week)
+    return {
+        "total"       : total,
+        "wins"        : wins,
+        "losses"      : losses,
+        "net_sgd"     : round(net, 2),
+        "win_rate"    : round(wins / total * 100, 1) if total else 0,
+        "loss_streak" : _loss_streak(trades),
+    }
+
+
+def _loss_streak(trades: list) -> int:
+    streak = 0
+    for t in reversed(trades):
+        if t.get("result") == "LOSS":
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def print_summary(cfg):
+    trades = load_trades(cfg)
+    if not trades:
+        print(f"[{cfg.PAIR_LABEL}] No trades yet.")
         return
-
-    candle_date = df["Date"].iloc[-1]
-
-    # ── Signal ────────────────────────────────────────────────────────────────
-    sig = get_signal(df, cfg)
-    print_signal(sig, cfg, candle_date)
-    jp.log_signal(sig, candle_date, cfg)
-
-    # ── Safety checks ─────────────────────────────────────────────────────────
-    safe, reason = is_safe_to_trade(now)
-    if not safe:
-        log.info(f"[{cfg.PAIR_LABEL}] Paused: {reason}")
-        tgp.alert_risk_pause(cfg, reason)
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (paused) ═══")
-        return
-
-    risk_ok, risk_reason = check_risk_limits(cfg)
-    if not risk_ok:
-        log.warning(f"[{cfg.PAIR_LABEL}] Risk limit: {risk_reason}")
-        tgp.alert_risk_pause(cfg, risk_reason)
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (risk) ═══")
-        return
-
-    # ── No signal ─────────────────────────────────────────────────────────────
-    if sig["signal"] == "NONE":
-        log.info(f"[{cfg.PAIR_LABEL}] No signal: {sig['reason']}")
-        tgp.alert_no_signal(cfg, sig, candle_date)
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (no signal) ═══")
-        return
-
-    # ── Already in trade ──────────────────────────────────────────────────────
-    if trader.has_open_trade():
-        log.info(f"[{cfg.PAIR_LABEL}] Open trade exists — skipping new signal")
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (trade open) ═══")
-        return
-
-    # ── Place order ───────────────────────────────────────────────────────────
-    log.info(f"[{cfg.PAIR_LABEL}] Signal: {sig['signal']} @ {sig['entry']}  "
-             f"score={sig.get('score', {}).get('total', '?')}")
-    tgp.alert_signal(cfg, sig, candle_date, balance_sgd=balance_sgd)
-
-    if cfg.BOT_MODE == "paper":
-        log.info(f"[{cfg.PAIR_LABEL}][PAPER] Signal only — no order placed: "
-                 f"{sig['signal']} @ {sig['entry']} TP={sig['tp']} SL={sig['sl']}")
-        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (paper — signal only) ═══")
-        return
-
-    fill = trader.place_order(
-        direction = sig["signal"],
-        entry     = sig["entry"],
-        tp        = sig["tp"],
-        sl        = sig["sl"],
-    )
-
-    if fill.get("status") == "FILLED":
-        acct2       = trader.get_account_summary()
-        bal_after   = acct2.get("balance_sgd") if acct2.get("balance_sgd") is not None \
-                      else acct2.get("balance")
-        log.info(f"[{cfg.PAIR_LABEL}] Order filled: {fill.get('trade_id')} @ {fill.get('fill_price')}")
-        tgp.alert_order_filled(cfg, fill, balance_sgd=bal_after)
-    else:
-        log.error(f"[{cfg.PAIR_LABEL}] Order failed: {fill}")
-        tgp.alert_error(cfg, f"Order failed: {fill.get('status')}")
-
-    log.info(f"═══ {cfg.PAIR_LABEL} cycle complete ═══")
+    wins  = sum(1 for t in trades if t.get("result") == "WIN")
+    total = len(trades)
+    net   = running_sgd(cfg)
+    wr    = round(wins / total * 100, 1) if total else 0
+    print(f"\n{'═'*54}")
+    print(f"  {cfg.PAIR_LABEL} Trade Journal  ({total} trades)")
+    print(f"  Win rate: {wr}%  |  Net: SGD {net:+.2f}")
+    print(f"{'─'*54}")
+    print(f"  {'ID':<6} {'Date':<12} {'Dir':<6} {'Result':<6} {'SGD':>8} {'Running':>10}")
+    print(f"{'─'*54}")
+    for t in trades:
+        try:
+            sgd = float(t.get("sgd_pnl") or 0)
+            run = float(t.get("running_sgd") or 0)
+        except (ValueError, TypeError):
+            sgd = run = 0.0
+        print(f"  {t['trade_id']:<6} {t['open_date']:<12} "
+              f"{t['direction']:<6} {t['result']:<6} {sgd:>+8.2f} {run:>+10.2f}")
+    print(f"  {'':54}  Total: SGD {net:+.2f}")
+    print(f"{'═'*54}\n")

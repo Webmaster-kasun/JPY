@@ -1,59 +1,73 @@
 """
-risk.py — Position sizing and risk gate checks
-==============================================
+settings.py — USD/JPY Day Scalper configuration
+================================================
+Reads all values from environment variables (Railway) or falls back to
+sensible defaults. Credentials are never hard-coded here.
 """
 
-import settings as cfg
-import journal
+import os
+from dotenv import load_dotenv
 
+load_dotenv(override=False)   # Railway env vars always win over .env file
 
-def calc_pnl_sgd(result: str, tp_pips: int = None, sl_pips: int = None,
-                 units: int = None) -> float:
-    tp_pips = tp_pips or cfg.TP_PIPS
-    sl_pips = sl_pips or cfg.SL_PIPS
-    lots    = (units or cfg.UNITS) / 10_000
-    sgd_pip = 0.91 * cfg.USD_SGD
-    if result == "WIN":
-        return  round(tp_pips * lots * sgd_pip, 2)
-    return     -round(sl_pips * lots * sgd_pip, 2)
+# ── OANDA credentials ─────────────────────────────────────────────────────────
+OANDA_API_KEY    = os.environ.get("OANDA_API_KEY",    "").strip()
+OANDA_ACCOUNT_ID = os.environ.get("OANDA_ACCOUNT_ID", "").strip()
+OANDA_ENV        = os.environ.get("OANDA_ENV",        "practice").strip()
+OANDA_BASE_URL   = (
+    "https://api-fxtrade.oanda.com"
+    if OANDA_ENV == "live"
+    else "https://api-fxpractice.oanda.com"
+)
 
+# ── Bot mode ──────────────────────────────────────────────────────────────────
+BOT_MODE = os.environ.get("BOT_MODE", "paper").strip()   # paper | demo | live
 
-def check_risk_limits() -> tuple:
-    """
-    Return (True, "OK") if safe to trade,
-    or (False, reason) if limits are breached.
-    """
-    stats = journal.weekly_stats()
+# ── Telegram ──────────────────────────────────────────────────────────────────
+TELEGRAM_TOKEN   = (os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+                    or os.environ.get("TELEGRAM_TOKEN", "").strip() or "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-    # Too many losses this week
-    if stats["total"] >= cfg.MAX_TRADES_WK:
-        return False, f"Max trades/week reached ({cfg.MAX_TRADES_WK})"
+# ── Pair identity ─────────────────────────────────────────────────────────────
+PAIR       = "USD_JPY"
+PAIR_LABEL = "USD/JPY"
+SYMBOL_YF  = "USDJPY=X"
+GRANULARITY = "D"
+CANDLES     = 100
 
-    # Weekly loss exceeded
-    if stats["net_sgd"] <= -cfg.MAX_LOSS_WEEK:
-        return False, f"Weekly loss limit hit (SGD {stats['net_sgd']:.0f})"
+# ── Strategy parameters ───────────────────────────────────────────────────────
+EMA_FAST  = 9
+EMA_SLOW  = 21
+RSI_PERIOD    = 14
+RSI_LONG_MAX  = 70
+RSI_SHORT_MIN = 30
+STOCH_K        = 14
+STOCH_D        = 3
+STOCH_LONG_MAX  = 80
+STOCH_SHORT_MIN = 20
 
-    # Loss streak
-    if stats["loss_streak"] >= cfg.PAUSE_STREAK:
-        return False, f"Loss streak = {stats['loss_streak']} — pausing"
+# ── Trade sizing ──────────────────────────────────────────────────────────────
+TP_PIPS  = 15
+SL_PIPS  = 10
+PIP_SIZE = 0.01       # JPY pairs: 1 pip = 0.01
+UNITS    = 50000      # 5 mini lots
+USD_SGD  = 1.35       # approximate — used for P&L display only
 
-    return True, "OK"
+TP_SGD = round(TP_PIPS * (UNITS / 10_000) * 0.91 * USD_SGD, 0)
+SL_SGD = round(SL_PIPS * (UNITS / 10_000) * 0.91 * USD_SGD, 0)
 
+# ── Risk gates ────────────────────────────────────────────────────────────────
+MAX_TRADES_WK  = 7
+MAX_LOSS_WEEK  = 500    # SGD
+PAUSE_STREAK   = 3
 
-def print_risk_summary():
-    tp_sgd  = calc_pnl_sgd("WIN")
-    sl_sgd  = calc_pnl_sgd("LOSS")
-    print(f"""
-  Risk Summary — USD/JPY ({cfg.UNITS:,} units)
-  TP {cfg.TP_PIPS} pips = SGD {tp_sgd:+.2f}
-  SL {cfg.SL_PIPS} pips = SGD {sl_sgd:.2f}
-  RR 1:{cfg.TP_PIPS/cfg.SL_PIPS:.1f}
-  Weekly scenarios (5 trades):
-    4W 1L  SGD {4*tp_sgd + 1*sl_sgd:+.0f}
-    3W 2L  SGD {3*tp_sgd + 2*sl_sgd:+.0f}  <- 80% WR target
-    2W 3L  SGD {2*tp_sgd + 3*sl_sgd:+.0f}
-""")
+# ── Paper trading ─────────────────────────────────────────────────────────────
+PAPER_STARTING_CAPITAL = 10_000   # SGD
 
+# ── Schedule (UTC) ────────────────────────────────────────────────────────────
+RUN_TIMES_UTC = ["22:05", "14:35"]   # 06:05 SGT, 22:35 SGT
+RUN_LABELS    = ["06:05 SGT — Tokyo open", "22:35 SGT — NY/London overlap"]
 
-if __name__ == "__main__":
-    print_risk_summary()
+# ── Logging ───────────────────────────────────────────────────────────────────
+JOURNAL_FILE = "logs/trade_journal.csv"
+SIGNAL_LOG   = "logs/signal_log.csv"
