@@ -109,6 +109,25 @@ def run(cfg):
         log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (weak signal) ═══")
         return
 
+    # ── Price drift filter ───────────────────────────────────────────────────
+    # Check live price hasn't drifted more than MAX_DRIFT_PIPS from signal entry
+    # If it has, the candle-based signal is stale — skip to avoid bad entry
+    MAX_DRIFT_PIPS = 20
+    try:
+        live = trader.get_price()
+        if live:
+            live_mid = (live["bid"] + live["ask"]) / 2
+            drift_pips = abs(live_mid - sig["entry"]) / cfg.PIP_SIZE
+            if drift_pips > MAX_DRIFT_PIPS:
+                log.info(f"[{cfg.PAIR_LABEL}] Price drifted {drift_pips:.1f} pips from signal entry "
+                         f"({sig['entry']:.5f} → {live_mid:.5f}) — signal stale, skipping")
+                tgp.alert_drift_skip(cfg, sig, candle_date, drift_pips, MAX_DRIFT_PIPS)
+                log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (stale signal — price drift) ═══")
+                return
+            log.info(f"[{cfg.PAIR_LABEL}] Price drift OK: {drift_pips:.1f} pips (max {MAX_DRIFT_PIPS})")
+    except Exception as e:
+        log.warning(f"[{cfg.PAIR_LABEL}] Could not check live price for drift: {e}")
+
     # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"[{cfg.PAIR_LABEL}] Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
     tgp.alert_signal(cfg, sig, candle_date, balance_sgd=balance_sgd)

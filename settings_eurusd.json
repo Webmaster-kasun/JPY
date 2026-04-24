@@ -19,11 +19,11 @@
     "rsi_short_min": 20,
     "stoch_k": 14,
     "stoch_d": 3,
-    "stoch_long_max": 85,
+    "stoch_long_max": 80,
     "stoch_short_min": 15,
     "direction": "both",
     "tp_pips": 25,
-    "min_score_to_trade": 50
+    "min_score_to_trade": 65
   },
   "trade": {
     "tp_pips": 25,

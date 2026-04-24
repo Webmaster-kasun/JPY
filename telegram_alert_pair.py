@@ -181,6 +181,25 @@ def alert_weak_signal(cfg, sig: dict, candle_date=None, score_val: int = 0, min_
     )
 
 
+# ── Stale signal — price drifted too far ──────────────────────────────────────
+
+def alert_drift_skip(cfg, sig: dict, candle_date=None, drift_pips: float = 0, max_drift: int = 20):
+    """Sent when live price has moved too far from signal entry — trade skipped."""
+    date_str = str(candle_date)[:10] if candle_date else "Today"
+    arrow    = "↑ LONG" if sig.get("signal") == "LONG" else "↓ SHORT"
+    return _send(cfg,
+        f"⏩ <b>{cfg.PAIR_LABEL} — Stale Signal Skipped</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 {date_str}  |  🕐 {_sgt()}\n"
+        f"📍 Signal entry : <code>{sig.get('entry', ''):.5f}</code>\n"
+        f"📍 Live price   : drifted <b>{drift_pips:.1f} pips</b> away\n"
+        f"⚠️ Max allowed  : {max_drift} pips\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Signal was {arrow} but market moved too far\n"
+        f"⛔ No order placed — entry price no longer valid"
+    )
+
+
 # ── Order filled ──────────────────────────────────────────────────────────────
 
 def alert_order_filled(cfg, fill: dict, balance_sgd=None):
