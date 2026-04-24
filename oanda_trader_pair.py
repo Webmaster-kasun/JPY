@@ -46,6 +46,16 @@ class OandaTrader:
             log.error(f"[{self.cfg.PAIR_LABEL}] OANDA POST error [{endpoint}]: {e}")
             return {}
 
+    def _put(self, endpoint, payload):
+        url = f"{self.base_url}{endpoint}"
+        try:
+            r = requests.put(url, headers=self.headers, json=payload, timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            log.error(f"[{self.cfg.PAIR_LABEL}] OANDA PUT error [{endpoint}]: {e}")
+            return {}
+
     def get_account_summary(self):
         data = self._get(f"/v3/accounts/{self.account_id}/summary")
         if not data:
@@ -128,34 +138,78 @@ class OandaTrader:
         return {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 5)}
 
     def place_order(self, direction, entry, tp, sl, units=None):
+        """
+        Place a MARKET order then recalculate TP/SL from the ACTUAL fill price.
+
+        Why: TP/SL passed in are calculated from the daily candle close.
+        The actual fill price can differ by 5-30 pips due to time elapsed.
+        Recalculating from fill price guarantees correct pip distances always.
+        """
         units        = units or self.cfg.UNITS
         signed_units = units if direction == "LONG" else -units
+        pip          = self.cfg.PIP_SIZE
+
+        # Step 1: Place plain market order WITHOUT TP/SL attached
         payload = {
             "order": {
                 "type"       : "MARKET",
                 "instrument" : self.cfg.PAIR,
                 "units"      : str(signed_units),
                 "timeInForce": "FOK",
-                "takeProfitOnFill": {"price": f"{tp:.5f}", "timeInForce": "GTC"},
-                "stopLossOnFill"  : {"price": f"{sl:.5f}", "timeInForce": "GTC"},
             }
         }
-        log.info(f"[{self.cfg.PAIR_LABEL}] Placing {direction} | {signed_units:+,} units | "
-                 f"TP={tp} SL={sl}")
+        log.info(f"[{self.cfg.PAIR_LABEL}] Placing {direction} | {signed_units:+,} units")
         result = self._post(f"/v3/accounts/{self.account_id}/orders", payload)
-        if result.get("orderFillTransaction"):
-            fill = result["orderFillTransaction"]
-            return {
-                "status"    : "FILLED",
-                "trade_id"  : fill.get("tradeOpened", {}).get("tradeID"),
-                "fill_price": float(fill.get("price", entry)),
-                "direction" : direction,
-                "units"     : signed_units,
-                "tp"        : tp,
-                "sl"        : sl,
-            }
-        log.warning(f"[{self.cfg.PAIR_LABEL}] Order not filled: {result}")
-        return {"status": "FAILED", "raw": result}
+
+        if not result.get("orderFillTransaction"):
+            log.warning(f"[{self.cfg.PAIR_LABEL}] Order not filled: {result}")
+            return {"status": "FAILED", "raw": result}
+
+        # Step 2: Get actual fill price from OANDA response
+        fill_tx    = result["orderFillTransaction"]
+        trade_id   = fill_tx.get("tradeOpened", {}).get("tradeID")
+        fill_price = round(float(fill_tx.get("price", entry)), 5)
+        log.info(f"[{self.cfg.PAIR_LABEL}] Filled @ {fill_price}  (signal entry was {entry})")
+
+        drift_pips = abs(fill_price - entry) / pip
+        if drift_pips > 0.5:
+            log.info(f"[{self.cfg.PAIR_LABEL}] Price drift: {drift_pips:.1f} pips — "
+                     f"recalculating TP/SL from fill price {fill_price}")
+
+        # Step 3: Recalculate TP/SL from FILL PRICE (not signal entry)
+        if direction == "LONG":
+            tp_from_fill = round(fill_price + self.cfg.TP_PIPS * pip, 5)
+            sl_from_fill = round(fill_price - self.cfg.SL_PIPS * pip, 5)
+        else:
+            tp_from_fill = round(fill_price - self.cfg.TP_PIPS * pip, 5)
+            sl_from_fill = round(fill_price + self.cfg.SL_PIPS * pip, 5)
+
+        log.info(f"[{self.cfg.PAIR_LABEL}] TP={tp_from_fill} (+{self.cfg.TP_PIPS}pip from fill) "
+                 f"SL={sl_from_fill} (-{self.cfg.SL_PIPS}pip from fill)")
+
+        # Step 4: Attach TP/SL via trade modify endpoint
+        modify_payload = {
+            "takeProfit": {"price": f"{tp_from_fill:.5f}", "timeInForce": "GTC"},
+            "stopLoss"  : {"price": f"{sl_from_fill:.5f}", "timeInForce": "GTC"},
+        }
+        modify_result = self._put(
+            f"/v3/accounts/{self.account_id}/trades/{trade_id}/orders",
+            modify_payload
+        )
+        if modify_result.get("relatedTransactionIDs"):
+            log.info(f"[{self.cfg.PAIR_LABEL}] TP/SL attached to trade {trade_id} ✅")
+        else:
+            log.warning(f"[{self.cfg.PAIR_LABEL}] TP/SL attach may have failed: {modify_result}")
+
+        return {
+            "status"    : "FILLED",
+            "trade_id"  : trade_id,
+            "fill_price": fill_price,
+            "direction" : direction,
+            "units"     : signed_units,
+            "tp"        : tp_from_fill,
+            "sl"        : sl_from_fill,
+        }
 
     def get_open_trades(self, instrument=None):
         instrument = instrument or self.cfg.PAIR
@@ -188,6 +242,16 @@ class PaperTrader:
         self.cfg     = cfg
         self._trades = []
         log.info(f"[{cfg.PAIR_LABEL}] PaperTrader active — no real orders")
+
+    def _put(self, endpoint, payload):
+        url = f"{self.base_url}{endpoint}"
+        try:
+            r = requests.put(url, headers=self.headers, json=payload, timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            log.error(f"[{self.cfg.PAIR_LABEL}] OANDA PUT error [{endpoint}]: {e}")
+            return {}
 
     def get_account_summary(self):
         try:
