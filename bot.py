@@ -21,6 +21,17 @@ from risk import check_risk_limits
 def run():
     """Execute one full bot cycle."""
     now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        day = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][now.weekday()]
+        log.info(f"[USD/JPY] Weekend ({day}) — skipping, forex markets closed")
+        return
+
+    # Block Friday NY session (14:00 UTC = 22:00 SGT onwards)
+    # Trades placed Friday night stay open over weekend → Monday gap risk
+    if now.weekday() == 4 and now.hour >= 14:
+        log.info(f"[USD/JPY] Friday NY session ({now.strftime('%H:%M UTC')}) — "
+                 f"skipping to avoid weekend gap risk")
+        return
     log.info(f"═══ Scalper cycle: {now.strftime('%Y-%m-%d %H:%M UTC')} ═══")
 
     trader = get_trader()

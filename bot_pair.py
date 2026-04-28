@@ -26,6 +26,17 @@ from oanda_trader_pair import get_trader
 def run(cfg):
     """Execute one full bot cycle for the given pair config."""
     now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        day = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][now.weekday()]
+        log.info(f"[{cfg.PAIR_LABEL}] Weekend ({day}) — skipping, forex markets closed")
+        return
+
+    # Block Friday NY session (14:00 UTC = 22:00 SGT onwards)
+    # Trades placed Friday night stay open over weekend → Monday gap risk
+    if now.weekday() == 4 and now.hour >= 14:
+        log.info(f"[{cfg.PAIR_LABEL}] Friday NY session ({now.strftime('%H:%M UTC')}) — "
+                 f"skipping to avoid weekend gap risk")
+        return
     log.info(f"═══ {cfg.PAIR_LABEL} cycle: {now.strftime('%Y-%m-%d %H:%M UTC')} ═══")
 
     trader = get_trader(cfg)
