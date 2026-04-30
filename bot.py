@@ -115,6 +115,26 @@ def run():
         log.info("═══ Cycle complete (weak signal) ═══")
         return
 
+    # ── Price drift filter ───────────────────────────────────────────────────
+    # Signal entry = daily candle close. Fill price = live market now.
+    # If price has drifted > 20 pips, SL ends up in wrong place → skip.
+    MAX_DRIFT_PIPS = 20
+    try:
+        live = trader.get_price()
+        if live:
+            live_mid  = (live["bid"] + live["ask"]) / 2
+            drift_pips = abs(live_mid - sig["entry"]) / cfg.PIP_SIZE
+            if drift_pips > MAX_DRIFT_PIPS:
+                log.info(f"[USD/JPY] Price drifted {drift_pips:.1f} pips from signal "
+                         f"entry ({sig['entry']:.3f} → {live_mid:.3f}) — stale signal, skipping")
+                tg.alert_error(f"Stale signal skipped — price drifted {drift_pips:.0f} pips "
+                               f"(max {MAX_DRIFT_PIPS}). No order placed.")
+                log.info("═══ Cycle complete (stale signal — price drift) ═══")
+                return
+            log.info(f"[USD/JPY] Price drift OK: {drift_pips:.1f} pips")
+    except Exception as e:
+        log.warning(f"[USD/JPY] Could not check live price: {e}")
+
     # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
     tg.alert_signal(sig, candle_date, balance_sgd=balance_sgd)

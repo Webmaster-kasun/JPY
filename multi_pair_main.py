@@ -73,10 +73,30 @@ ALL_PAIR_KEYS = ["eurusd", "gbpusd", "audusd", "usdchf", "nzdusd", "usdcad"]
 
 # ── Safe runners ──────────────────────────────────────────────────────────────
 
+# USD-correlated pairs — when USD moves strongly, all 3 lose together
+# Limit: max 2 of EUR/GBP/CHF per session to reduce correlated loss risk
+USD_CORRELATED = {"eurusd", "gbpusd", "usdchf"}
+_session_corr_count = {"count": 0, "session_id": None}
+
 def _safe_run(pair_label, fn, *args):
-    if datetime.now(timezone.utc).weekday() >= 5:
+    now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:
         log.info(f"[{pair_label}] Weekend — skipping")
         return
+
+    # Correlated pair limiter — max 2 USD-correlated pairs per session
+    pair_key = pair_label.lower().replace("/","")
+    session_id = now.strftime("%Y-%m-%d-%H")
+    if session_id != _session_corr_count["session_id"]:
+        _session_corr_count["count"] = 0
+        _session_corr_count["session_id"] = session_id
+    if pair_key in USD_CORRELATED:
+        if _session_corr_count["count"] >= 2:
+            log.info(f"[{pair_label}] Correlated pair limit (2/session) — skipping "
+                     f"to avoid triple USD loss risk")
+            return
+        _session_corr_count["count"] += 1
+
     try:
         fn(*args)
     except Exception as e:

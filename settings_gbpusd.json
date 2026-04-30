@@ -23,11 +23,12 @@
     "stoch_short_min": 15,
     "direction": "both",
     "tp_pips": 25,
-    "min_score_to_trade": 65
+    "min_score_to_trade": 65,
+    "sl_pips": 20
   },
   "trade": {
     "tp_pips": 25,
-    "sl_pips": 15,
+    "sl_pips": 20,
     "pip_size": 0.0001,
     "units": 50000,
     "usd_sgd_rate": 1.35,
