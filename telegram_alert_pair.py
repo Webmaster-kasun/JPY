@@ -200,6 +200,23 @@ def alert_drift_skip(cfg, sig: dict, candle_date=None, drift_pips: float = 0, ma
     )
 
 
+def alert_dxy_block(cfg, sig: dict, candle_date=None, dxy_dir: str = "STRONG", reason: str = ""):
+    date_str = str(candle_date)[:10] if candle_date else "Today"
+    arrow    = "↑ LONG" if sig.get("signal") == "LONG" else "↓ SHORT"
+    icon     = "📈" if dxy_dir == "STRONG" else "📉"
+    label    = "USD STRONG — Dollar rising" if dxy_dir == "STRONG" else "USD WEAK — Dollar falling"
+    return _send(cfg,
+        f"🛡️ <b>{cfg.PAIR_LABEL} — Trade Blocked (DXY Filter)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 {date_str}  |  🕐 {_sgt()}\n"
+        f"{icon} {label}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Signal : {arrow}  @  <code>{sig.get("entry", ""):.5f}</code>\n"
+        f"ℹ️ {reason}\n"
+        f"⛔ No order placed — USD direction conflict"
+    )
+
+
 # ── Order filled ──────────────────────────────────────────────────────────────
 
 def alert_order_filled(cfg, fill: dict, balance_sgd=None):

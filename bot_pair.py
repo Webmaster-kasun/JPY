@@ -21,6 +21,7 @@ from signals_pair import get_signal, print_signal
 from calendar_filter import is_safe_to_trade, get_session_label
 from risk_pair import check_risk_limits
 from oanda_trader_pair import get_trader
+from usd_filter import get_dxy_direction, is_trade_allowed
 
 
 def run(cfg):
@@ -138,6 +139,16 @@ def run(cfg):
             log.info(f"[{cfg.PAIR_LABEL}] Price drift OK: {drift_pips:.1f} pips (max {MAX_DRIFT_PIPS})")
     except Exception as e:
         log.warning(f"[{cfg.PAIR_LABEL}] Could not check live price for drift: {e}")
+
+    # ── USD Strength Filter (DXY) ────────────────────────────────────────────
+    dxy_dir = get_dxy_direction(trader)
+    allowed, dxy_reason = is_trade_allowed(cfg.PAIR, sig["signal"], dxy_dir)
+    if not allowed:
+        log.info(f"[{cfg.PAIR_LABEL}] DXY filter blocked: {dxy_reason}")
+        tgp.alert_dxy_block(cfg, sig, candle_date, dxy_dir, dxy_reason)
+        log.info(f"═══ {cfg.PAIR_LABEL} cycle complete (DXY filter) ═══")
+        return
+    log.info(f"[{cfg.PAIR_LABEL}] DXY OK: {dxy_reason}")
 
     # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"[{cfg.PAIR_LABEL}] Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")

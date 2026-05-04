@@ -14,6 +14,7 @@ import journal
 import telegram_alert as tg
 from signals import get_signal, print_signal
 from calendar_filter import is_safe_to_trade, get_session_label
+from usd_filter import get_dxy_direction, is_trade_allowed
 from oanda_trader import get_trader
 from risk import check_risk_limits
 
@@ -134,6 +135,16 @@ def run():
             log.info(f"[USD/JPY] Price drift OK: {drift_pips:.1f} pips")
     except Exception as e:
         log.warning(f"[USD/JPY] Could not check live price: {e}")
+
+    # ── USD Strength Filter (DXY) ────────────────────────────────────────────
+    dxy_dir = get_dxy_direction(trader)
+    allowed, dxy_reason = is_trade_allowed(cfg.PAIR, sig["signal"], dxy_dir)
+    if not allowed:
+        log.info(f"[USD/JPY] DXY filter blocked: {dxy_reason}")
+        tg.alert_error(f"DXY filter blocked trade: {dxy_reason}")
+        log.info("═══ Cycle complete (DXY filter) ═══")
+        return
+    log.info(f"[USD/JPY] DXY OK: {dxy_reason}")
 
     # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
