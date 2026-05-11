@@ -188,7 +188,7 @@ def run(cfg):
             log.info(f"[US session] Candle structure fail: {cs_fail}")
             us_msg = f"US session filter: candle structure — {cs_fail}"
             tgp.alert_error(cfg, us_msg)
-            log.info(""═══ {cfg.PAIR_LABEL} cycle complete (US session — candle structure) ═══")
+            log.info(f"Cycle complete [{cfg.PAIR_LABEL}] (US session - candle structure)")
             return
 
         # ② Breakout retest — entry must be within 25 pips of EMA9
@@ -199,7 +199,7 @@ def run(cfg):
             log.info(f"[US session] Retest fail: entry {dist_pips:.1f}pip from EMA9 (max {MAX_DIST})")
             us_msg = f"US session filter: chasing signal — {dist_pips:.0f}pip from EMA9 (max {MAX_DIST})"
             tgp.alert_error(cfg, us_msg)
-            log.info(""═══ {cfg.PAIR_LABEL} cycle complete (US session — retest) ═══")
+            log.info(f"Cycle complete [{cfg.PAIR_LABEL}] (US session - retest)")
             return
 
         # ③ ATR expansion — market must have enough range but not too wild
@@ -211,13 +211,13 @@ def run(cfg):
             log.info(f"[US session] ATR fail: {atr_pips:.0f}pip < min {MIN_ATR:.0f}pip")
             us_msg = f"US session filter: ATR too low ({atr_pips:.0f}pip < {MIN_ATR:.0f}pip)"
             tgp.alert_error(cfg, us_msg)
-            log.info(""═══ {cfg.PAIR_LABEL} cycle complete (US session — ATR too low) ═══")
+            log.info(f"Cycle complete [{cfg.PAIR_LABEL}] (US session - ATR too low)")
             return
         if atr_pips > MAX_ATR:
             log.info(f"[US session] ATR fail: {atr_pips:.0f}pip > max {MAX_ATR}pip")
             us_msg = f"US session filter: ATR too high ({atr_pips:.0f}pip > {MAX_ATR}pip, too volatile)"
             tgp.alert_error(cfg, us_msg)
-            log.info(""═══ {cfg.PAIR_LABEL} cycle complete (US session — ATR too high) ═══")
+            log.info(f"Cycle complete [{cfg.PAIR_LABEL}] (US session - ATR too high)")
             return
 
         log.info(f"[US session] All 3 extra filters passed — candle ✅  retest {dist_pips:.0f}pip ✅  ATR {atr_pips:.0f}pip ✅")
