@@ -146,6 +146,78 @@ def run():
         return
     log.info(f"[USD/JPY] DXY OK: {dxy_reason}")
 
+
+    # ── US Session extra filters (22:35 SGT = 14:35 UTC only) ───────────────
+    # Candle structure, breakout retest, ATR expansion
+    # These apply ONLY at the NY/London overlap session for highest conviction
+    is_us_session = (now.hour == 14 and 30 <= now.minute <= 45)
+    if is_us_session:
+        df_last = df.iloc[-1]
+        o_  = float(df_last["Open"])
+        h_  = float(df_last["High"])
+        l_  = float(df_last["Low"])
+        c_  = float(df_last["Close"])
+        atr_val = float(sig.get("atr", 0))
+        pip = cfg.PIP_SIZE
+
+        # ① Candle structure — body must be strong and close in right zone
+        body     = abs(c_ - o_)
+        rng      = h_ - l_
+        body_pct = body / rng if rng > 0 else 0
+        close_pct = (c_ - l_) / rng if rng > 0 else 0.5
+        cs_fail = None
+        if sig["signal"] == "LONG":
+            if c_ <= o_:
+                cs_fail = "red candle — no upward close confirmation"
+            elif body_pct < 0.40:
+                cs_fail = f"weak candle body ({body_pct:.0%} < 40%)"
+            elif close_pct < 0.60:
+                cs_fail = f"close in lower half ({close_pct:.0%}) — no bullish strength"
+        else:
+            if c_ >= o_:
+                cs_fail = "green candle — no downward close confirmation"
+            elif body_pct < 0.40:
+                cs_fail = f"weak candle body ({body_pct:.0%} < 40%)"
+            elif close_pct > 0.40:
+                cs_fail = f"close in upper half ({close_pct:.0%}) — no bearish strength"
+        if cs_fail:
+            log.info(f"[US session] Candle structure fail: {cs_fail}")
+            us_msg = f"US session filter: candle structure — {cs_fail}"
+            tg.alert_error(us_msg)
+            log.info(""═══ Cycle complete (US session — candle structure) ═══")
+            return
+
+        # ② Breakout retest — entry must be within 25 pips of EMA9
+        ema9_val   = float(sig.get("ema_fast", sig["entry"]))
+        dist_pips  = abs(sig["entry"] - ema9_val) / pip
+        MAX_DIST   = 25
+        if dist_pips > MAX_DIST:
+            log.info(f"[US session] Retest fail: entry {dist_pips:.1f}pip from EMA9 (max {MAX_DIST})")
+            us_msg = f"US session filter: chasing signal — {dist_pips:.0f}pip from EMA9 (max {MAX_DIST})"
+            tg.alert_error(us_msg)
+            log.info(""═══ Cycle complete (US session — retest) ═══")
+            return
+
+        # ③ ATR expansion — market must have enough range but not too wild
+        atr_pips   = atr_val / pip if pip < 0.01 else atr_val / pip
+        tp_pips    = cfg.TP_PIPS
+        MIN_ATR    = tp_pips * 1.5   # at least 1.5× TP in daily range
+        MAX_ATR    = 150
+        if atr_pips < MIN_ATR:
+            log.info(f"[US session] ATR fail: {atr_pips:.0f}pip < min {MIN_ATR:.0f}pip")
+            us_msg = f"US session filter: ATR too low ({atr_pips:.0f}pip < {MIN_ATR:.0f}pip)"
+            tg.alert_error(us_msg)
+            log.info(""═══ Cycle complete (US session — ATR too low) ═══")
+            return
+        if atr_pips > MAX_ATR:
+            log.info(f"[US session] ATR fail: {atr_pips:.0f}pip > max {MAX_ATR}pip")
+            us_msg = f"US session filter: ATR too high ({atr_pips:.0f}pip > {MAX_ATR}pip, too volatile)"
+            tg.alert_error(us_msg)
+            log.info(""═══ Cycle complete (US session — ATR too high) ═══")
+            return
+
+        log.info(f"[US session] All 3 extra filters passed — candle ✅  retest {dist_pips:.0f}pip ✅  ATR {atr_pips:.0f}pip ✅")
+
     # ── Place order ───────────────────────────────────────────────────────────
     log.info(f"Signal: {sig['signal']} @ {sig['entry']}  score={score_val}")
     tg.alert_signal(sig, candle_date, balance_sgd=balance_sgd)
