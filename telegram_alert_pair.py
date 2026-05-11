@@ -22,16 +22,26 @@ def _send(cfg, text: str) -> bool:
     if not cfg.TELEGRAM_TOKEN or not cfg.TELEGRAM_CHAT_ID:
         log.warning(f"[{cfg.PAIR_LABEL}] Telegram not configured — skipping")
         return False
+    url = TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN)
     try:
-        r = requests.post(
-            TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN),
+        r = requests.post(url,
             json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
-            timeout=8,
-        )
+            timeout=8)
         r.raise_for_status()
         return True
     except Exception as e:
-        log.error(f"[{cfg.PAIR_LABEL}] Telegram error: {e}")
+        log.warning(f"[{cfg.PAIR_LABEL}] Telegram HTML failed: {e} — retrying plain text")
+    import re as _re
+    plain = _re.sub(r"<[^>]+>", "", text)
+    plain = plain.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
+    try:
+        r = requests.post(url,
+            json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": plain}, timeout=8)
+        r.raise_for_status()
+        log.info(f"[{cfg.PAIR_LABEL}] Telegram plain text fallback sent ✅")
+        return True
+    except Exception as e2:
+        log.error(f"[{cfg.PAIR_LABEL}] Telegram failed completely: {e2}")
         return False
 
 
@@ -211,7 +221,7 @@ def alert_dxy_block(cfg, sig: dict, candle_date=None, dxy_dir: str = "STRONG", r
         f"📅 {date_str}  |  🕐 {_sgt()}\n"
         f"{icon} {label}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Signal : {arrow}  @  <code>{sig.get("entry", ""):.5f}</code>\n"
+        f"Signal : {arrow}  @  <code>{sig.get('entry', 0):.5f}</code>\n"
         f"ℹ️ {reason}\n"
         f"⛔ No order placed — USD direction conflict"
     )

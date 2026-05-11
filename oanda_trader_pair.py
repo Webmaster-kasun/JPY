@@ -243,16 +243,6 @@ class PaperTrader:
         self._trades = []
         log.info(f"[{cfg.PAIR_LABEL}] PaperTrader active — no real orders")
 
-    def _put(self, endpoint, payload):
-        url = f"{self.base_url}{endpoint}"
-        try:
-            r = requests.put(url, headers=self.headers, json=payload, timeout=10)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            log.error(f"[{self.cfg.PAIR_LABEL}] OANDA PUT error [{endpoint}]: {e}")
-            return {}
-
     def get_account_summary(self):
         try:
             import journal_pair as jp

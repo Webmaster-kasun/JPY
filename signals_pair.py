@@ -94,9 +94,9 @@ def get_signal(df, cfg):
         return _empty("Not enough candles")
 
     # Reject stale weekend candles — forex is closed/illiquid on Sat & Sun
-    last_ts = df["time"].iloc[-1] if "time" in df.columns else None
+    last_ts = df["Date"].iloc[-1] if "Date" in df.columns else None
     if last_ts:
-        wd = _pd.to_datetime(last_ts).weekday()
+        wd = pd.to_datetime(last_ts).weekday()
         if wd >= 5:
             day = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][wd]
             return _empty(f"Last candle is {day} — weekend candle, skipping")

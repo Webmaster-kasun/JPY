@@ -39,13 +39,13 @@ CANDLES     = 100
 EMA_FAST  = 9
 EMA_SLOW  = 21
 RSI_PERIOD    = 14
-RSI_LONG_MAX  = 70
-RSI_SHORT_MIN = 30
+RSI_LONG_MAX  = 80
+RSI_SHORT_MIN = 20
 STOCH_K        = 14
 STOCH_D        = 3
 STOCH_LONG_MAX  = 80
 STOCH_SHORT_MIN = 20
-MIN_SCORE       = 50   # minimum signal score (0-100) required to place an order
+MIN_SCORE       = 65   # minimum signal score (0-100) required to place an order
 
 # ── Trade sizing ──────────────────────────────────────────────────────────────
 TP_PIPS  = 15

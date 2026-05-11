@@ -22,16 +22,26 @@ def _send(text: str) -> bool:
     if not cfg.TELEGRAM_TOKEN or not cfg.TELEGRAM_CHAT_ID:
         log.warning("Telegram not configured — skipping")
         return False
+    url = TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN)
     try:
-        r = requests.post(
-            TELEGRAM_API.format(token=cfg.TELEGRAM_TOKEN),
+        r = requests.post(url,
             json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
-            timeout=8
-        )
+            timeout=8)
         r.raise_for_status()
         return True
     except Exception as e:
-        log.error(f"Telegram error: {e}")
+        log.warning(f"Telegram HTML failed: {e} — retrying plain text")
+    import re as _re
+    plain = _re.sub(r"<[^>]+>", "", text)
+    plain = plain.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
+    try:
+        r = requests.post(url,
+            json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": plain}, timeout=8)
+        r.raise_for_status()
+        log.info("Telegram plain text fallback sent ✅")
+        return True
+    except Exception as e2:
+        log.error(f"Telegram failed completely: {e2}")
         return False
 
 

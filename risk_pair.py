@@ -17,7 +17,7 @@ def calc_pnl_sgd(result: str, cfg,
     sl_pips = sl_pips or cfg.SL_PIPS
     lots    = (units or cfg.UNITS) / 10_000
     pip_size = cfg.PIP_SIZE
-    # JPY pairs (pip_size=0.01): 1 pip ≈ /bin/sh.91 per 10k units (JPY correction factor)
+    # JPY pairs (pip_size=0.01): 1 pip ≈ $0.91 per 10k units (JPY correction factor)
     # USD-quoted pairs (pip_size=0.0001): 1 pip = units × pip_size × USD_SGD exactly
     if pip_size >= 0.01:
         sgd_pip = 0.91 * cfg.USD_SGD
