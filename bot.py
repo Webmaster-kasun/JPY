@@ -199,7 +199,7 @@ def run():
             return
 
         # ③ ATR expansion — market must have enough range but not too wild
-        atr_pips   = atr_val / pip if pip < 0.01 else atr_val / pip
+        atr_pips   = atr_val / pip
         tp_pips    = cfg.TP_PIPS
         MIN_ATR    = tp_pips * 1.5   # at least 1.5× TP in daily range
         MAX_ATR    = 150

@@ -47,7 +47,7 @@ BANNER = """
 ╔══════════════════════════════════════════════════════╗
 ║   7-Pair Day Scalper  v2.0                          ║
 ║   Strategy : EMA9/21 + RSI + Stochastic             ║
-║   USD/JPY  : TP 15pip / SL 10pip                   ║
+║   USD/JPY  : TP 15pip / SL 12pip                   ║
 ║   EUR/USD  : TP 25pip / SL 15pip                   ║
 ║   GBP/USD  : TP 25pip / SL 15pip                   ║
 ║   AUD/USD  : TP 20pip / SL 12pip                   ║

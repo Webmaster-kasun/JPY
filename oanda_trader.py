@@ -280,8 +280,6 @@ def get_trader(cfg=None):
     if api_key and account_id:
         mode = (cfg.BOT_MODE if cfg else None) or os.environ.get("BOT_MODE", "paper")
         log.info(f"{mode.upper()} mode — OandaTrader (OANDA API | real balance)")
-        if cfg:
-            return OandaTrader(cfg)
         return OandaTrader()
 
     log.warning("No OANDA credentials in environment — using PaperTrader (fake balance)")

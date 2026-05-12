@@ -92,7 +92,6 @@ class PairConfig:
         # SGD per pip calculation differs by pair type:
         # JPY pairs (USD/JPY): pip = 0.01, value ≈ 0.91 USD per 10k units
         # USD-quoted pairs (EUR/USD, GBP/USD): pip = 0.0001, value = units × pip_size × USD_SGD
-        import math
         if self.PIP_SIZE >= 0.01:   # JPY pair
             self.SGD_PER_PIP = round(0.91 * self.USD_SGD * (self.UNITS / 10000), 4)
         else:                        # EUR/USD, GBP/USD — pip value =  per 10k units

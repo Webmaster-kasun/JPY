@@ -66,6 +66,10 @@ def get_session_label(dt_utc: datetime = None) -> str:
     if 21 <= h <= 23:
         return "06:05 SGT — Tokyo open"
     # 14:35 UTC = 22:35 SGT
+    # 07:05 UTC = 15:05 SGT
+    if 6 <= h <= 8:
+        return "15:05 SGT — London open"
+    # 14:35 UTC = 22:35 SGT
     if 14 <= h <= 15:
         return "22:35 SGT — NY/London overlap"
     return f"{(h+8)%24:02d}:00 SGT"
