@@ -49,7 +49,7 @@ MIN_SCORE       = 65   # minimum signal score (0-100) required to place an order
 
 # ── Trade sizing ──────────────────────────────────────────────────────────────
 TP_PIPS  = 15
-SL_PIPS  = 10
+SL_PIPS  = 12
 PIP_SIZE = 0.01       # JPY pairs: 1 pip = 0.01
 UNITS    = 50000      # 5 mini lots
 USD_SGD  = 1.35       # approximate — used for P&L display only

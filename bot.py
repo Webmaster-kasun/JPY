@@ -157,7 +157,7 @@ def run():
         h_  = float(df_last["High"])
         l_  = float(df_last["Low"])
         c_  = float(df_last["Close"])
-        atr_val = float(sig.get("atr", 0))
+        atr_val = float(sig.get("atr") or 0)
         pip = cfg.PIP_SIZE
 
         # ① Candle structure — body must be strong and close in right zone
